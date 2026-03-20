@@ -6,67 +6,71 @@
   <title>Cloudflare Router</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <style>
+    :root { --bg:#0a0a0a; --card:#171717; --border:#262626; --text:#e5e5e5; --text2:#a3a3a3; --text3:#737373; --accent:#f97316; --accent2:#ea580c; --green:#4ade80; --red:#f87171; --yellow:#fbbf24; --blue:#60a5fa; }
+    [data-theme="light"] { --bg:#f5f5f5; --card:#fff; --border:#e5e7eb; --text:#1f2937; --text2:#4b5563; --text3:#9ca3af; --accent:#f97316; --accent2:#ea580c; --green:#16a34a; --red:#dc2626; --yellow:#ca8a04; --blue:#2563eb; }
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#0a0a0a; color:#e5e5e5; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); transition:background .3s,color .3s; }
     .container { max-width:1400px; margin:0 auto; padding:24px; }
-    header { background:linear-gradient(135deg,#f97316 0%,#ea580c 100%); padding:40px 0; margin-bottom:32px; }
-    header h1 { font-size:32px; font-weight:700; color:#fff; }
-    header p { color:rgba(255,255,255,0.8); margin-top:4px; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; margin-bottom:24px; }
-    .card { background:#171717; border:1px solid #262626; border-radius:12px; padding:20px; }
-    .card h3 { font-size:14px; color:#a3a3a3; margin-bottom:8px; }
-    .stat { font-size:36px; font-weight:700; color:#fff; }
-    .stat-sm { font-size:14px; color:#737373; margin-top:4px; }
+    header { background:linear-gradient(135deg,var(--accent) 0%,var(--accent2) 100%); padding:32px 0; margin-bottom:24px; }
+    header .container { display:flex; justify-content:space-between; align-items:center; }
+    header h1 { font-size:28px; font-weight:700; color:#fff; }
+    header p { color:rgba(255,255,255,0.8); margin-top:2px; font-size:14px; }
+    .header-actions { display:flex; gap:8px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin-bottom:20px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; }
+    .card h3 { font-size:12px; color:var(--text3); margin-bottom:6px; text-transform:uppercase; }
+    .stat { font-size:28px; font-weight:700; color:var(--text); }
     table { width:100%; border-collapse:collapse; }
-    th { text-align:left; padding:12px 16px; font-size:12px; text-transform:uppercase; color:#737373; border-bottom:1px solid #262626; }
-    td { padding:12px 16px; border-bottom:1px solid #1f1f1f; }
-    .badge { padding:4px 10px; border-radius:20px; font-size:11px; font-weight:600; }
-    .badge-ok { background:#052e16; color:#4ade80; }
-    .badge-warn { background:#422006; color:#fbbf24; }
-    .badge-err { background:#450a0a; color:#f87171; }
-    .badge-info { background:#172554; color:#60a5fa; }
-    .btn { padding:8px 16px; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; transition:all .15s; }
-    .btn-p { background:#f97316; color:#fff; } .btn-p:hover { background:#ea580c; }
-    .btn-s { background:#262626; color:#e5e5e5; } .btn-s:hover { background:#333; }
+    th { text-align:left; padding:10px 14px; font-size:11px; text-transform:uppercase; color:var(--text3); border-bottom:1px solid var(--border); }
+    td { padding:10px 14px; border-bottom:1px solid var(--border); font-size:13px; }
+    .badge { padding:3px 8px; border-radius:16px; font-size:10px; font-weight:600; }
+    .badge-ok { background:#052e16; color:var(--green); } [data-theme="light"] .badge-ok { background:#dcfce7; }
+    .badge-warn { background:#422006; color:var(--yellow); } [data-theme="light"] .badge-warn { background:#fef3c7; }
+    .badge-err { background:#450a0a; color:var(--red); } [data-theme="light"] .badge-err { background:#fee2e2; }
+    .badge-info { background:#172554; color:var(--blue); } [data-theme="light"] .badge-info { background:#dbeafe; }
+    .btn { padding:6px 14px; border:none; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; }
+    .btn-p { background:var(--accent); color:#fff; } .btn-p:hover { background:var(--accent2); }
+    .btn-s { background:var(--border); color:var(--text); } .btn-s:hover { background:#333; }
     .btn-d { background:#7f1d1d; color:#fca5a5; } .btn-d:hover { background:#991b1b; }
-    .input { width:100%; padding:10px 14px; background:#171717; border:1px solid #333; border-radius:8px; color:#e5e5e5; font-size:14px; }
-    .input:focus { outline:none; border-color:#f97316; }
-    label { display:block; font-size:13px; color:#a3a3a3; margin-bottom:6px; }
-    .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.7); z-index:1000; }
-    .modal-box { background:#171717; border:1px solid #333; border-radius:16px; padding:28px; max-width:500px; margin:80px auto; }
-    .modal-hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
-    .modal-hdr h2 { font-size:20px; color:#fff; }
-    .close-btn { background:none; border:none; font-size:24px; cursor:pointer; color:#737373; }
-    .account-card { background:#171717; border:1px solid #262626; border-radius:12px; padding:20px; margin-bottom:16px; }
-    .account-hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
-    .zone-row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #1f1f1f; }
-    .zone-row:last-child { border-bottom:none; }
-    .tabs { display:flex; gap:8px; margin-bottom:24px; }
-    .tab { padding:8px 16px; border-radius:8px; cursor:pointer; font-size:14px; background:#262626; color:#a3a3a3; }
-    .tab.active { background:#f97316; color:#fff; }
-    .actions { display:flex; gap:8px; flex-wrap:wrap; }
-    .login-box { max-width:400px; margin:100px auto; background:#171717; border:1px solid #333; border-radius:16px; padding:40px; text-align:center; }
-    .login-box h2 { margin-bottom:24px; color:#fff; }
-    .login-box .input { margin-bottom:16px; }
+    .btn-sm { padding:4px 10px; font-size:11px; }
+    .input { width:100%; padding:8px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px; }
+    .input:focus { outline:none; border-color:var(--accent); }
+    label { display:block; font-size:12px; color:var(--text2); margin-bottom:4px; }
+    .tabs { display:flex; gap:4px; margin-bottom:20px; flex-wrap:wrap; }
+    .tab { padding:6px 14px; border-radius:6px; cursor:pointer; font-size:13px; background:var(--border); color:var(--text2); transition:all .15s; }
+    .tab:hover { color:var(--text); } .tab.active { background:var(--accent); color:#fff; }
     .hidden { display:none !important; }
-    .account-tree { margin-bottom:16px; }
-    .account-item { background:#171717; border:1px solid #262626; border-radius:12px; margin-bottom:8px; overflow:hidden; }
-    .account-header { display:flex; align-items:center; padding:16px 20px; cursor:pointer; user-select:none; }
-    .account-header:hover { background:#1f1f1f; }
-    .account-chevron { width:20px; height:20px; margin-right:12px; transition:transform .2s; color:#737373; }
-    .account-chevron.open { transform:rotate(90deg); }
+    .account-tree { margin-bottom:12px; }
+    .account-item { background:var(--card); border:1px solid var(--border); border-radius:10px; margin-bottom:6px; overflow:hidden; }
+    .account-header { display:flex; align-items:center; padding:12px 16px; cursor:pointer; user-select:none; }
+    .account-header:hover { background:var(--border); }
+    .chevron { width:16px; height:16px; margin-right:10px; transition:transform .2s; color:var(--text3); }
+    .chevron.open { transform:rotate(90deg); }
     .account-info { flex:1; }
-    .account-name { font-size:16px; font-weight:600; color:#fff; }
-    .account-meta { font-size:12px; color:#737373; margin-top:2px; }
-    .account-actions { display:flex; gap:6px; }
-    .zone-list { border-top:1px solid #262626; padding:0 20px 12px 48px; }
-    .zone-item { display:flex; align-items:center; padding:10px 0; border-bottom:1px solid #1f1f1f; }
+    .account-name { font-size:14px; font-weight:600; }
+    .account-meta { font-size:11px; color:var(--text3); }
+    .zone-list { border-top:1px solid var(--border); padding:0 16px 8px 42px; }
+    .zone-item { display:flex; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); }
     .zone-item:last-child { border-bottom:none; }
-    .zone-dot { width:8px; height:8px; border-radius:50%; background:#4ade80; margin-right:12px; }
+    .zone-dot { width:6px; height:6px; border-radius:50%; background:var(--green); margin-right:10px; }
     .zone-info { flex:1; }
-    .zone-domain { font-size:14px; color:#f97316; font-weight:500; }
-    .zone-meta { font-size:11px; color:#737373; }
-    .zone-actions { display:flex; gap:6px; }
+    .zone-domain { font-size:13px; color:var(--accent); font-weight:500; }
+    .zone-meta { font-size:10px; color:var(--text3); }
+    .actions { display:flex; gap:6px; flex-wrap:wrap; }
+    .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.6); z-index:1000; }
+    .modal-box { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:24px; max-width:480px; margin:60px auto; }
+    .modal-hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+    .modal-hdr h2 { font-size:18px; }
+    .close-btn { background:none; border:none; font-size:22px; cursor:pointer; color:var(--text3); }
+    .login-box { max-width:380px; margin:80px auto; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:32px; text-align:center; }
+    .login-box h2 { margin-bottom:20px; }
+    .login-box .input { margin-bottom:12px; }
+    .chart-container { height:120px; display:flex; align-items:flex-end; gap:4px; padding:8px 0; }
+    .chart-bar { flex:1; background:var(--accent); border-radius:3px 3px 0 0; min-height:4px; transition:height .3s; opacity:0.8; }
+    .chart-bar:hover { opacity:1; }
+    .health-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+    .health-dot.healthy { background:var(--green); } .health-dot.unhealthy { background:var(--red); } .health-dot.pending { background:var(--yellow); }
+    .theme-toggle { background:var(--border); border:none; color:var(--text); width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:16px; }
   </style>
 </head>
 <body>
@@ -76,17 +80,21 @@
       <h2>Dashboard Login</h2>
       <form onsubmit="login(event)">
         <input class="input" id="login-password" type="password" placeholder="Password" required>
-        <button type="submit" class="btn btn-p" style="width:100%">Login</button>
+        <button type="submit" class="btn btn-p" style="width:100%;padding:10px">Login</button>
       </form>
-      <p id="login-error" style="color:#f87171;margin-top:12px;display:none">Invalid password</p>
+      <p id="login-error" style="color:var(--red);margin-top:10px;display:none">Invalid password</p>
     </div>
   </div>
 
   <div id="dashboard-screen" class="hidden">
     <header>
       <div class="container">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div><h1>Cloudflare Router</h1><p>Manage accounts, zones, DNS, and tunnels</p></div>
+        <div><h1>☁️ Cloudflare Router</h1><p>Manage accounts, domains, DNS, tunnels & monitoring</p></div>
+        <div class="header-actions">
+          <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌓</button>
+          <button class="btn btn-s" onclick="exportConfig()" title="Export config">📥</button>
+          <button class="btn btn-s" onclick="document.getElementById('import-file').click()" title="Import config">📤</button>
+          <input type="file" id="import-file" style="display:none" accept=".json" onchange="importConfig(event)">
           <button class="btn btn-s" onclick="logout()">Logout</button>
         </div>
       </div>
@@ -96,61 +104,97 @@
         <div class="card"><h3>Accounts</h3><div class="stat" id="s-acc">-</div></div>
         <div class="card"><h3>Zones</h3><div class="stat" id="s-zones">-</div></div>
         <div class="card"><h3>Mappings</h3><div class="stat" id="s-map">-</div></div>
-        <div class="card"><h3>Nginx</h3><div class="stat" id="s-nginx" style="font-size:20px">-</div></div>
+        <div class="card"><h3>Requests</h3><div class="stat" id="s-req">-</div></div>
+        <div class="card"><h3>Nginx</h3><div class="stat" id="s-nginx" style="font-size:16px">-</div></div>
+        <div class="card"><h3>Uptime</h3><div class="stat" id="s-uptime" style="font-size:16px">-</div></div>
       </div>
-      <div class="tabs">
-        <div class="tab active" onclick="showTab('accounts')">Accounts</div>
-        <div class="tab" onclick="showTab('domains')">Domains</div>
-        <div class="tab" onclick="showTab('mappings')">Mappings</div>
-        <div class="tab" onclick="showTab('dns')">DNS Records</div>
-        <div class="tab" onclick="showTab('tunnels')">Tunnels</div>
+      <div class="tabs" id="main-tabs">
+        <div class="tab active" data-tab="accounts">Accounts</div>
+        <div class="tab" data-tab="domains">Domains</div>
+        <div class="tab" data-tab="mappings">Mappings</div>
+        <div class="tab" data-tab="dns">DNS</div>
+        <div class="tab" data-tab="tunnels">Tunnels</div>
+        <div class="tab" data-tab="ssl">SSL</div>
+        <div class="tab" data-tab="health">Health</div>
+        <div class="tab" data-tab="traffic">Traffic</div>
+        <div class="tab" data-tab="ports">Ports</div>
+        <div class="tab" data-tab="nginx">Nginx</div>
       </div>
       <div id="tab-accounts">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <h2 style="font-size:18px;color:#fff">Cloudflare Accounts</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="font-size:16px">Cloudflare Accounts</h2>
           <div class="actions">
-            <button class="btn btn-p" onclick="showAddAccount()">+ Add Account</button>
+            <button class="btn btn-p" onclick="showModal('add-account-modal')">+ Account</button>
             <button class="btn btn-s" onclick="generateAndDeploy()">Deploy All</button>
+            <button class="btn btn-s" onclick="restartAllTunnels()">🔄 Restart Tunnels</button>
           </div>
         </div>
         <div id="accounts-list"></div>
       </div>
       <div id="tab-domains" class="hidden">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <h2 style="font-size:18px;color:#fff">All Domains</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="font-size:16px">All Domains</h2>
           <button class="btn btn-s" onclick="loadDomains()">Refresh</button>
         </div>
-        <div class="card">
-          <table><thead><tr><th>Domain</th><th>Zone ID</th><th>Tunnel ID</th><th>Mappings</th><th>Account</th><th>Actions</th></tr></thead>
-          <tbody id="domains-list"><tr><td colspan="6" style="text-align:center;color:#737373">Loading...</td></tr></tbody></table>
-        </div>
+        <div class="card"><table><thead><tr><th>Domain</th><th>Zone ID</th><th>Tunnel</th><th>Mappings</th><th>Account</th><th>Actions</th></tr></thead>
+        <tbody id="domains-list"></tbody></table></div>
       </div>
       <div id="tab-mappings" class="hidden">
-        <div class="card">
-          <h3 style="margin-bottom:16px">All Subdomain Mappings</h3>
-          <table><thead><tr><th>Subdomain</th><th>Port</th><th>Account</th><th>Zone</th><th>Status</th></tr></thead>
-          <tbody id="all-mappings"></tbody></table>
-        </div>
+        <div class="card"><table><thead><tr><th>Subdomain</th><th>Port</th><th>Account</th><th>Zone</th><th>Status</th></tr></thead>
+        <tbody id="all-mappings"></tbody></table></div>
       </div>
       <div id="tab-dns" class="hidden">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <h2 style="font-size:18px;color:#fff">All DNS Records</h2>
-          <button class="btn btn-s" onclick="loadDNS()">Refresh</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="font-size:16px">DNS Records</h2><button class="btn btn-s" onclick="loadDNS()">Refresh</button>
         </div>
-        <div class="card">
-          <table><thead><tr><th>Name</th><th>Type</th><th>Content</th><th>Proxied</th><th>Account</th><th>Zone</th></tr></thead>
-          <tbody id="dns-list"><tr><td colspan="6" style="text-align:center;color:#737373">Loading...</td></tr></tbody></table>
-        </div>
+        <div class="card"><table><thead><tr><th>Name</th><th>Type</th><th>Content</th><th>Proxied</th><th>Account</th><th>Zone</th></tr></thead>
+        <tbody id="dns-list"></tbody></table></div>
       </div>
       <div id="tab-tunnels" class="hidden">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <h2 style="font-size:18px;color:#fff">All Tunnels</h2>
-          <button class="btn btn-s" onclick="loadTunnels()">Refresh</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="font-size:16px">Tunnels</h2><button class="btn btn-s" onclick="loadTunnels()">Refresh</button>
         </div>
-        <div class="card">
-          <table><thead><tr><th>Name</th><th>ID</th><th>Status</th><th>Type</th><th>Account</th><th>Created</th></tr></thead>
-          <tbody id="tunnels-list"><tr><td colspan="6" style="text-align:center;color:#737373">Loading...</td></tr></tbody></table>
+        <div class="card"><table><thead><tr><th>Name</th><th>ID</th><th>Status</th><th>Type</th><th>Account</th><th>Created</th><th>Actions</th></tr></thead>
+        <tbody id="tunnels-list"></tbody></table></div>
+      </div>
+      <div id="tab-ssl" class="hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="font-size:16px">SSL Certificates</h2><button class="btn btn-s" onclick="loadSSL()">Check All</button>
         </div>
+        <div class="card"><table><thead><tr><th>Domain</th><th>Expires</th><th>Days Left</th><th>Status</th></tr></thead>
+        <tbody id="ssl-list"></tbody></table></div>
+      </div>
+      <div id="tab-health" class="hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="font-size:16px">Health Checks</h2><button class="btn btn-p" onclick="showModal('add-health-modal')">+ Add Check</button>
+        </div>
+        <div class="card"><table><thead><tr><th>Name</th><th>URL</th><th>Status</th><th>Latency</th><th>Last Check</th><th>Actions</th></tr></thead>
+        <tbody id="health-list"></tbody></table></div>
+      </div>
+      <div id="tab-traffic" class="hidden">
+        <div class="card" style="margin-bottom:16px">
+          <h3 style="margin-bottom:12px">Traffic (Last 7 Days)</h3>
+          <div class="chart-container" id="traffic-chart"></div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3)"><span>7 days ago</span><span>Today</span></div>
+        </div>
+        <div class="grid">
+          <div class="card"><h3>Total Requests</h3><div class="stat" id="traffic-total">-</div></div>
+          <div class="card"><h3>Success</h3><div class="stat" style="color:var(--green)" id="traffic-success">-</div></div>
+          <div class="card"><h3>Errors</h3><div class="stat" style="color:var(--red)" id="traffic-errors">-</div></div>
+        </div>
+      </div>
+      <div id="tab-ports" class="hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="font-size:16px">Port Scanner</h2><button class="btn btn-p" onclick="scanPorts()">Scan Ports</button>
+        </div>
+        <div class="card"><table><thead><tr><th>Port</th><th>Status</th><th>Service</th></tr></thead>
+        <tbody id="ports-list"></tbody></table></div>
+      </div>
+      <div id="tab-nginx" class="hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="font-size:16px">Nginx Configs</h2><button class="btn btn-s" onclick="loadNginx()">Refresh</button>
+        </div>
+        <div id="nginx-list"></div>
       </div>
     </div>
   </div>
@@ -159,13 +203,10 @@
     <div class="modal-box">
       <div class="modal-hdr"><h2>Add Cloudflare Account</h2><button class="close-btn" onclick="closeModal('add-account-modal')">&times;</button></div>
       <form onsubmit="addAccount(event)">
-        <div style="margin-bottom:14px"><label>Account Name</label><input class="input" id="acc-name" placeholder="Personal" required></div>
-        <div style="margin-bottom:14px"><label>Email</label><input class="input" id="acc-email" placeholder="user@example.com" required></div>
-        <div style="margin-bottom:14px"><label>Global API Key or API Token</label><input class="input" id="acc-key" type="password" placeholder="Your Cloudflare API key" required></div>
-        <div style="display:flex;gap:8px;margin-top:20px">
-          <button type="submit" class="btn btn-p">Add Account</button>
-          <button type="button" class="btn btn-s" onclick="closeModal('add-account-modal')">Cancel</button>
-        </div>
+        <div style="margin-bottom:12px"><label>Account Name</label><input class="input" id="acc-name" placeholder="Personal" required></div>
+        <div style="margin-bottom:12px"><label>Email</label><input class="input" id="acc-email" placeholder="user@example.com" required></div>
+        <div style="margin-bottom:12px"><label>API Key</label><input class="input" id="acc-key" type="password" placeholder="Cloudflare API key" required></div>
+        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button type="button" class="btn btn-s" onclick="closeModal('add-account-modal')">Cancel</button></div>
       </form>
     </div>
   </div>
@@ -175,30 +216,35 @@
       <div class="modal-hdr"><h2>Add Zone</h2><button class="close-btn" onclick="closeModal('add-zone-modal')">&times;</button></div>
       <form onsubmit="addZone(event)">
         <input type="hidden" id="zone-acc-id">
-        <div style="margin-bottom:14px"><label>Zone ID</label><input class="input" id="zone-id" placeholder="Cloudflare Zone ID" required></div>
-        <div style="margin-bottom:14px"><label>Domain</label><input class="input" id="zone-domain" placeholder="example.com" required></div>
-        <div style="margin-bottom:14px"><label>Tunnel ID</label><input class="input" id="zone-tunnel" placeholder="Cloudflare Tunnel ID"></div>
-        <div style="display:flex;gap:8px;margin-top:20px">
-          <button type="submit" class="btn btn-p">Add Zone</button>
-          <button type="button" class="btn btn-s" onclick="closeModal('add-zone-modal')">Cancel</button>
-        </div>
+        <div style="margin-bottom:12px"><label>Zone ID</label><input class="input" id="zone-id" required></div>
+        <div style="margin-bottom:12px"><label>Domain</label><input class="input" id="zone-domain" required></div>
+        <div style="margin-bottom:12px"><label>Tunnel ID</label><input class="input" id="zone-tunnel"></div>
+        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button type="button" class="btn btn-s" onclick="closeModal('add-zone-modal')">Cancel</button></div>
       </form>
     </div>
   </div>
 
   <div class="modal" id="add-mapping-modal">
     <div class="modal-box">
-      <div class="modal-hdr"><h2>Add Subdomain Mapping</h2><button class="close-btn" onclick="closeModal('add-mapping-modal')">&times;</button></div>
+      <div class="modal-hdr"><h2>Add Mapping</h2><button class="close-btn" onclick="closeModal('add-mapping-modal')">&times;</button></div>
       <form onsubmit="addMapping(event)">
-        <input type="hidden" id="map-acc-id">
-        <input type="hidden" id="map-zone-id">
-        <div style="margin-bottom:14px"><label>Subdomain</label><input class="input" id="map-sub" placeholder="api" required></div>
-        <div style="margin-bottom:14px"><label>Local Port</label><input class="input" id="map-port" type="number" placeholder="3000" required></div>
-        <div style="margin-bottom:14px"><label>Description</label><input class="input" id="map-desc" placeholder="Backend API"></div>
-        <div style="display:flex;gap:8px;margin-top:20px">
-          <button type="submit" class="btn btn-p">Add Mapping</button>
-          <button type="button" class="btn btn-s" onclick="closeModal('add-mapping-modal')">Cancel</button>
-        </div>
+        <input type="hidden" id="map-acc-id"><input type="hidden" id="map-zone-id">
+        <div style="margin-bottom:12px"><label>Subdomain</label><input class="input" id="map-sub" required></div>
+        <div style="margin-bottom:12px"><label>Port</label><input class="input" id="map-port" type="number" required></div>
+        <div style="margin-bottom:12px"><label>Description</label><input class="input" id="map-desc"></div>
+        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button type="button" class="btn btn-s" onclick="closeModal('add-mapping-modal')">Cancel</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="add-health-modal">
+    <div class="modal-box">
+      <div class="modal-hdr"><h2>Add Health Check</h2><button class="close-btn" onclick="closeModal('add-health-modal')">&times;</button></div>
+      <form onsubmit="addHealthCheck(event)">
+        <div style="margin-bottom:12px"><label>Name</label><input class="input" id="hc-name" placeholder="My API"></div>
+        <div style="margin-bottom:12px"><label>URL</label><input class="input" id="hc-url" placeholder="https://api.example.com/health" required></div>
+        <div style="margin-bottom:12px"><label>Interval (seconds)</label><input class="input" id="hc-interval" type="number" value="30"></div>
+        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button type="button" class="btn btn-s" onclick="closeModal('add-health-modal')">Cancel</button></div>
       </form>
     </div>
   </div>
@@ -206,11 +252,13 @@
   <script>
     const API = window.location.origin;
     let authToken = localStorage.getItem('cf-router-token') || '';
+    let ws = null;
+    const commonPorts = {80:'HTTP',443:'HTTPS',3000:'Node',3001:'App',3002:'API',3003:'Dashboard',5432:'PostgreSQL',6379:'Redis',6969:'Nginx',7070:'CF-Router',8080:'Alt-HTTP',8443:'Alt-HTTPS'};
 
     async function fetchJSON(url, opts = {}) {
-      const headers = { 'Content-Type': 'application/json', ...opts.headers };
+      const headers = {'Content-Type':'application/json', ...opts.headers};
       if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-      const res = await fetch(API + url, { ...opts, headers });
+      const res = await fetch(API + url, {...opts, headers});
       if (res.status === 401) { showLogin(); return null; }
       return res.json();
     }
@@ -221,14 +269,25 @@
     function showLogin() {
       document.getElementById('login-screen').classList.remove('hidden');
       document.getElementById('dashboard-screen').classList.add('hidden');
-      authToken = '';
-      localStorage.removeItem('cf-router-token');
+      authToken = ''; localStorage.removeItem('cf-router-token');
+      if (ws) ws.close();
     }
 
     function showDashboard() {
       document.getElementById('login-screen').classList.add('hidden');
       document.getElementById('dashboard-screen').classList.remove('hidden');
+      connectWebSocket();
     }
+
+    function toggleTheme() {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme');
+      const next = current === 'light' ? 'dark' : 'light';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('cf-theme', next);
+    }
+
+    document.documentElement.setAttribute('data-theme', localStorage.getItem('cf-theme') || 'dark');
 
     async function checkAuth() {
       const check = await fetch(API + '/api/auth/check').then(r => r.json());
@@ -242,38 +301,63 @@
 
     async function login(e) {
       e.preventDefault();
-      const password = document.getElementById('login-password').value;
-      const res = await fetch(API + '/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
-      }).then(r => r.json());
-      if (res.success) {
-        authToken = res.token;
-        localStorage.setItem('cf-router-token', authToken);
-        showDashboard();
-        loadAll();
-      } else {
-        document.getElementById('login-error').style.display = 'block';
-      }
+      const res = await fetch(API + '/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:document.getElementById('login-password').value})}).then(r => r.json());
+      if (res.success) { authToken = res.token; localStorage.setItem('cf-router-token', authToken); showDashboard(); loadAll(); }
+      else document.getElementById('login-error').style.display = 'block';
     }
 
-    function logout() {
-      authToken = '';
-      localStorage.removeItem('cf-router-token');
-      showLogin();
+    function logout() { authToken = ''; localStorage.removeItem('cf-router-token'); showLogin(); }
+
+    function connectWebSocket() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${location.host}`);
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'stats') updateStats(msg.data);
+        if (msg.type === 'health') updateHealthUI(msg.data);
+      };
+      ws.onclose = () => setTimeout(connectWebSocket, 5000);
     }
 
-    function showTab(tab) {
+    function updateStats(stats) {
+      document.getElementById('traffic-total').textContent = stats.total;
+      document.getElementById('traffic-success').textContent = stats.success;
+      document.getElementById('traffic-errors').textContent = stats.errors;
+      const chart = document.getElementById('traffic-chart');
+      const max = Math.max(...stats.history.map(h => h.count), 1);
+      chart.innerHTML = stats.history.slice(-24).map(h => `<div class="chart-bar" style="height:${(h.count/max)*100}%" title="${h.hour}: ${h.count}"></div>`).join('');
+    }
+
+    function updateHealthUI(checks) {
+      const tbody = document.getElementById('health-list');
+      if (!checks.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3)">No health checks configured</td></tr>'; return; }
+      tbody.innerHTML = checks.map(c => `<tr>
+        <td><span class="health-dot ${c.status}"></span>${c.name}</td>
+        <td style="font-size:11px;color:var(--text3)">${c.url}</td>
+        <td><span class="badge ${c.status==='healthy'?'badge-ok':c.status==='unhealthy'?'badge-err':'badge-warn'}">${c.status}</span></td>
+        <td>${c.latency ? c.latency + 'ms' : '-'}</td>
+        <td style="font-size:11px">${c.lastCheck ? new Date(c.lastCheck).toLocaleTimeString() : '-'}</td>
+        <td><button class="btn btn-d btn-sm" onclick="removeHealthCheck('${c.id}')">×</button></td>
+      </tr>`).join('');
+    }
+
+    document.getElementById('main-tabs').addEventListener('click', (e) => {
+      if (!e.target.classList.contains('tab')) return;
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      event.target.classList.add('active');
-      ['accounts','domains','mappings','dns','tunnels'].forEach(t => {
+      e.target.classList.add('active');
+      const tab = e.target.dataset.tab;
+      ['accounts','domains','mappings','dns','tunnels','ssl','health','traffic','ports','nginx'].forEach(t => {
         document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab);
       });
       if (tab === 'domains') loadDomains();
       if (tab === 'dns') loadDNS();
       if (tab === 'tunnels') loadTunnels();
-    }
+      if (tab === 'ssl') loadSSL();
+      if (tab === 'health') loadHealthChecks();
+      if (tab === 'traffic') loadStats();
+      if (tab === 'ports') scanPorts();
+      if (tab === 'nginx') loadNginx();
+    });
 
     async function loadStats() {
       const s = await fetchJSON('/api/status');
@@ -281,48 +365,30 @@
       document.getElementById('s-acc').textContent = s.accounts;
       document.getElementById('s-zones').textContent = s.zones;
       document.getElementById('s-map').textContent = s.enabled;
-      document.getElementById('s-nginx').innerHTML = s.nginx.running ? '<span style="color:#4ade80">● Running</span>' : '<span style="color:#f87171">○ Stopped</span>';
+      document.getElementById('s-nginx').innerHTML = s.nginx.running ? '<span style="color:var(--green)">● Running</span>' : '<span style="color:var(--red)">○ Stopped</span>';
+      const stats = await fetchJSON('/api/stats');
+      if (stats) {
+        document.getElementById('s-req').textContent = stats.total;
+        updateStats(stats);
+      }
     }
 
     async function loadAccounts() {
       const accounts = await fetchJSON('/api/accounts');
       if (!accounts) return;
       const container = document.getElementById('accounts-list');
-      if (!accounts.length) {
-        container.innerHTML = '<div class="card"><p style="color:#737373;text-align:center;padding:40px">No accounts yet</p></div>';
-        return;
-      }
+      if (!accounts.length) { container.innerHTML = '<div class="card"><p style="color:var(--text3);text-align:center;padding:32px">No accounts yet</p></div>'; return; }
       container.innerHTML = '<div class="account-tree">' + accounts.map((acc, idx) => `
         <div class="account-item">
           <div class="account-header" onclick="toggleAccount(${idx})">
-            <svg class="account-chevron" id="chevron-${idx}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/></svg>
-            <div class="account-info">
-              <div class="account-name">${acc.name}</div>
-              <div class="account-meta">${acc.email} • ${acc.zones.length} zones • API: ${acc.api_key_masked}</div>
-            </div>
-            <div class="account-actions" onclick="event.stopPropagation()">
-              <button class="btn btn-s" onclick="discoverZones('${acc.id}')">Discover</button>
-              <button class="btn btn-s" onclick="showAddZone('${acc.id}')">+ Zone</button>
-              <button class="btn btn-d" onclick="removeAccount('${acc.id}')">×</button>
-            </div>
+            <svg class="chevron" id="chevron-${idx}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"/></svg>
+            <div class="account-info"><div class="account-name">${acc.name}</div><div class="account-meta">${acc.email} • ${acc.zones.length} zones</div></div>
+            <div class="actions" onclick="event.stopPropagation()"><button class="btn btn-s btn-sm" onclick="discoverZones('${acc.id}')">Discover</button><button class="btn btn-s btn-sm" onclick="showModal2('${acc.id}')">+ Zone</button><button class="btn btn-d btn-sm" onclick="removeAccount('${acc.id}')">×</button></div>
           </div>
           <div class="zone-list" id="zones-${idx}" style="display:none">
-            ${acc.zones.length ? acc.zones.map(z => `
-              <div class="zone-item">
-                <div class="zone-dot"></div>
-                <div class="zone-info">
-                  <div class="zone-domain">${z.domain}</div>
-                  <div class="zone-meta">Zone: ${z.zone_id}${z.tunnel_id ? ' • Tunnel: ' + z.tunnel_id : ''}</div>
-                </div>
-                <div class="zone-actions">
-                  <button class="btn btn-s" onclick="showAddMapping('${acc.id}','${z.zone_id}')">+ Mapping</button>
-                  <button class="btn btn-d" onclick="removeZone('${acc.id}','${z.zone_id}')">×</button>
-                </div>
-              </div>
-            `).join('') : '<p style="color:#737373;padding:8px 0">No zones. Click Discover to find zones.</p>'}
+            ${acc.zones.length ? acc.zones.map(z => `<div class="zone-item"><div class="zone-dot"></div><div class="zone-info"><div class="zone-domain">${z.domain}</div><div class="zone-meta">${z.zone_id}${z.tunnel_id ? ' • ' + z.tunnel_id.slice(0,8) + '...' : ''}</div></div><div class="actions"><button class="btn btn-s btn-sm" onclick="showModal3('${acc.id}','${z.zone_id}')">+ Map</button><button class="btn btn-d btn-sm" onclick="removeZone('${acc.id}','${z.zone_id}')">×</button></div></div>`).join('') : '<p style="color:var(--text3);padding:8px 0;font-size:12px">No zones</p>'}
           </div>
-        </div>
-      `).join('') + '</div>';
+        </div>`).join('') + '</div>';
     }
 
     function toggleAccount(idx) {
@@ -333,140 +399,183 @@
       chevron.classList.toggle('open', !isOpen);
     }
 
+    function showModal2(accId) { document.getElementById('zone-acc-id').value = accId; showModal('add-zone-modal'); }
+    function showModal3(accId, zoneId) { document.getElementById('map-acc-id').value = accId; document.getElementById('map-zone-id').value = zoneId; showModal('add-mapping-modal'); }
+
     async function loadDomains() {
       const accounts = await fetchJSON('/api/accounts');
       if (!accounts) return;
+      const mappings = await fetchJSON('/api/mappings') || [];
       const allDomains = [];
       for (const acc of accounts) {
         for (const z of acc.zones) {
-          const mappings = await fetchJSON('/api/mappings');
-          const zoneMapCount = mappings ? mappings.filter(m => m.account_id === acc.id && m.zone_id === z.zone_id).length : 0;
-          allDomains.push({ ...z, account_name: acc.name, account_id: acc.id, mapping_count: zoneMapCount });
+          const count = mappings.filter(m => m.account_id === acc.id && m.zone_id === z.zone_id).length;
+          allDomains.push({ ...z, account_name: acc.name, account_id: acc.id, mapping_count: count });
         }
       }
-      document.getElementById('domains-list').innerHTML = allDomains.length
-        ? allDomains.map(d => `<tr>
-            <td><strong style="color:#f97316">${d.domain}</strong></td>
-            <td style="font-family:monospace;font-size:12px;color:#737373">${d.zone_id}</td>
-            <td style="font-family:monospace;font-size:12px;color:#737373">${d.tunnel_id || '-'}</td>
-            <td><span class="badge badge-info">${d.mapping_count} mappings</span></td>
-            <td>${d.account_name}</td>
-            <td>
-              <button class="btn btn-s" onclick="showAddMapping('${d.account_id}','${d.zone_id}')">+ Mapping</button>
-            </td>
-          </tr>`).join('')
-        : '<tr><td colspan="6" style="text-align:center;color:#737373">No domains configured</td></tr>';
+      document.getElementById('domains-list').innerHTML = allDomains.length ? allDomains.map(d => `<tr>
+        <td><strong style="color:var(--accent)">${d.domain}</strong></td>
+        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${d.zone_id}</td>
+        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${d.tunnel_id ? d.tunnel_id.slice(0,8)+'...' : '-'}</td>
+        <td><span class="badge badge-info">${d.mapping_count}</span></td>
+        <td>${d.account_name}</td>
+        <td><button class="btn btn-s btn-sm" onclick="showModal3('${d.account_id}','${d.zone_id}')">+ Mapping</button></td>
+      </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text3)">No domains</td></tr>';
     }
 
     async function loadMappings() {
       const mappings = await fetchJSON('/api/mappings');
       if (!mappings) return;
-      document.getElementById('all-mappings').innerHTML = mappings.length
-        ? mappings.map(m => `<tr>
-            <td><strong>${m.full_domain}</strong></td><td>${m.port}</td>
-            <td>${m.account_name}</td><td>${m.domain}</td>
-            <td><span class="badge ${m.enabled!==false?'badge-ok':'badge-err'}">${m.enabled!==false?'Active':'Disabled'}</span></td>
-          </tr>`).join('')
-        : '<tr><td colspan="5" style="text-align:center;color:#737373">No mappings yet</td></tr>';
+      document.getElementById('all-mappings').innerHTML = mappings.length ? mappings.map(m => `<tr>
+        <td><strong>${m.full_domain}</strong></td><td>${m.port}</td><td>${m.account_name}</td><td>${m.domain}</td>
+        <td><span class="badge ${m.enabled!==false?'badge-ok':'badge-err'}">${m.enabled!==false?'Active':'Disabled'}</span></td>
+      </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text3)">No mappings</td></tr>';
     }
 
     async function loadDNS() {
       const dns = await fetchJSON('/api/dns/all');
       if (!dns) return;
-      document.getElementById('dns-list').innerHTML = dns.length
-        ? dns.map(r => `<tr>
-            <td><strong>${r.name}</strong></td>
-            <td><span class="badge badge-info">${r.type}</span></td>
-            <td style="color:#a3a3a3;font-family:monospace;font-size:12px">${r.content}</td>
-            <td>${r.proxied ? '<span style="color:#4ade80">Yes</span>' : 'No'}</td>
-            <td>${r.account_name}</td>
-            <td>${r.zone_domain}</td>
-          </tr>`).join('')
-        : '<tr><td colspan="6" style="text-align:center;color:#737373">No DNS records found</td></tr>';
+      document.getElementById('dns-list').innerHTML = dns.length ? dns.map(r => `<tr>
+        <td><strong>${r.name}</strong></td><td><span class="badge badge-info">${r.type}</span></td>
+        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${r.content}</td>
+        <td>${r.proxied ? '<span style="color:var(--green)">Yes</span>' : 'No'}</td><td>${r.account_name}</td><td>${r.zone_domain}</td>
+      </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text3)">No DNS records</td></tr>';
     }
 
     async function loadTunnels() {
       const tunnels = await fetchJSON('/api/tunnels/all');
       if (!tunnels) return;
-      document.getElementById('tunnels-list').innerHTML = tunnels.length
-        ? tunnels.map(t => `<tr>
-            <td><strong>${t.name}</strong></td>
-            <td style="font-family:monospace;font-size:12px;color:#737373">${t.id}</td>
-            <td><span class="badge ${t.status==='healthy'?'badge-ok':t.status==='down'?'badge-err':'badge-warn'}">${t.status}</span></td>
-            <td>${t.tun_type || '-'}</td>
-            <td>${t.account_name}</td>
-            <td>${t.created_at ? new Date(t.created_at).toLocaleDateString() : '-'}</td>
-          </tr>`).join('')
-        : '<tr><td colspan="6" style="text-align:center;color:#737373">No tunnels found</td></tr>';
+      document.getElementById('tunnels-list').innerHTML = tunnels.length ? tunnels.map(t => `<tr>
+        <td><strong>${t.name}</strong></td><td style="font-family:monospace;font-size:11px;color:var(--text3)">${t.id.slice(0,8)}...</td>
+        <td><span class="badge ${t.status==='healthy'?'badge-ok':'badge-err'}">${t.status}</span></td>
+        <td>${t.tun_type || '-'}</td><td>${t.account_name}</td><td>${t.created_at ? new Date(t.created_at).toLocaleDateString() : '-'}</td>
+        <td><button class="btn btn-s btn-sm" onclick="restartTunnel('${t.id}')">🔄</button></td>
+      </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text3)">No tunnels</td></tr>';
     }
 
-    function showAddAccount() { showModal('add-account-modal'); }
-    function showAddZone(accId) { document.getElementById('zone-acc-id').value = accId; showModal('add-zone-modal'); }
-    function showAddMapping(accId, zoneId) {
-      document.getElementById('map-acc-id').value = accId;
-      document.getElementById('map-zone-id').value = zoneId;
-      showModal('add-mapping-modal');
+    async function loadSSL() {
+      document.getElementById('ssl-list').innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text3)">Checking SSL certificates...</td></tr>';
+      const ssl = await fetchJSON('/api/ssl/all');
+      if (!ssl) return;
+      document.getElementById('ssl-list').innerHTML = ssl.map(s => `<tr>
+        <td><strong>${s.domain}</strong></td>
+        <td style="font-size:12px">${s.expires || '-'}</td>
+        <td style="color:${s.daysUntilExpiry < 30 ? 'var(--red)' : s.daysUntilExpiry < 60 ? 'var(--yellow)' : 'var(--green)'}">${s.daysUntilExpiry !== null ? s.daysUntilExpiry + ' days' : '-'}</td>
+        <td><span class="badge ${s.status === 'ok' ? 'badge-ok' : s.status === 'warning' ? 'badge-warn' : 'badge-err'}">${s.status || (s.error ? 'error' : '-')}</span></td>
+      </tr>`).join('');
+    }
+
+    async function loadHealthChecks() {
+      const checks = await fetchJSON('/api/health-checks');
+      updateHealthUI(checks || []);
+    }
+
+    async function addHealthCheck(e) {
+      e.preventDefault();
+      await fetchJSON('/api/health-check/add', {method:'POST', body:JSON.stringify({
+        name: document.getElementById('hc-name').value,
+        url: document.getElementById('hc-url').value,
+        interval: parseInt(document.getElementById('hc-interval').value) * 1000
+      })});
+      closeModal('add-health-modal');
+      loadHealthChecks();
+    }
+
+    async function removeHealthCheck(id) {
+      await fetchJSON(`/api/health-check/${id}`, {method:'DELETE'});
+      loadHealthChecks();
+    }
+
+    async function scanPorts() {
+      document.getElementById('ports-list').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text3)">Scanning...</td></tr>';
+      const ports = await fetchJSON('/api/scan-ports', {method:'POST', body:JSON.stringify({})});
+      if (!ports) return;
+      document.getElementById('ports-list').innerHTML = ports.sort((a,b) => a.port - b.port).map(p => `<tr>
+        <td><strong>${p.port}</strong></td>
+        <td><span class="badge ${p.status==='open'?'badge-ok':'badge-err'}">${p.status}</span></td>
+        <td>${commonPorts[p.port] || '-'}</td>
+      </tr>`).join('');
+    }
+
+    async function loadNginx() {
+      const configs = await fetchJSON('/api/nginx/configs');
+      if (!configs) return;
+      document.getElementById('nginx-list').innerHTML = configs.map(c => `<div class="card" style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong>${c.file}</strong><button class="btn btn-s btn-sm" onclick="navigator.clipboard.writeText(\`${c.content.replace(/`/g,'\\`')}\`)">Copy</button></div>
+        <pre style="background:var(--bg);padding:12px;border-radius:8px;font-size:11px;overflow-x:auto;color:var(--text2)">${c.content}</pre>
+      </div>`).join('');
+    }
+
+    async function generateAndDeploy() {
+      if (!confirm('Generate nginx configs and deploy all DNS records?')) return;
+      await fetchJSON('/api/generate', {method:'POST'});
+      await fetchJSON('/api/deploy', {method:'POST'});
+      alert('Deployed!');
+      loadStats();
+    }
+
+    async function restartTunnel(id) {
+      if (!confirm('Restart this tunnel?')) return;
+      await fetchJSON('/api/tunnel/restart', {method:'POST', body:JSON.stringify({})});
+      alert('Tunnel restarting...');
+    }
+
+    async function restartAllTunnels() {
+      if (!confirm('Restart ALL tunnels?')) return;
+      await fetchJSON('/api/tunnel/restart-all', {method:'POST'});
+      alert('All tunnels restarting...');
+    }
+
+    async function exportConfig() {
+      const data = await fetchJSON('/api/config/export');
+      if (!data) return;
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'cloudflare-router-backup.json'; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    async function importConfig(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!confirm('Import config? This will overwrite existing settings.')) return;
+      await fetchJSON('/api/config/import', {method:'POST', body:JSON.stringify(data)});
+      alert('Config imported!');
+      loadAll();
     }
 
     async function addAccount(e) {
       e.preventDefault();
-      await fetchJSON('/api/accounts', { method:'POST', body:JSON.stringify({
-        name: document.getElementById('acc-name').value,
-        email: document.getElementById('acc-email').value,
-        api_key: document.getElementById('acc-key').value
-      })});
+      await fetchJSON('/api/accounts', {method:'POST', body:JSON.stringify({name:document.getElementById('acc-name').value, email:document.getElementById('acc-email').value, api_key:document.getElementById('acc-key').value})});
       closeModal('add-account-modal');
       loadAccounts(); loadStats();
     }
 
-    async function removeAccount(id) {
-      if (!confirm('Remove this account?')) return;
-      await fetchJSON(`/api/accounts/${id}`, { method:'DELETE' });
-      loadAccounts(); loadStats();
-    }
+    async function removeAccount(id) { if (!confirm('Remove account?')) return; await fetchJSON(`/api/accounts/${id}`, {method:'DELETE'}); loadAccounts(); loadStats(); }
 
     async function addZone(e) {
       e.preventDefault();
-      await fetchJSON(`/api/accounts/${document.getElementById('zone-acc-id').value}/zones`, { method:'POST', body:JSON.stringify({
-        zone_id: document.getElementById('zone-id').value,
-        domain: document.getElementById('zone-domain').value,
-        tunnel_id: document.getElementById('zone-tunnel').value
-      })});
+      await fetchJSON(`/api/accounts/${document.getElementById('zone-acc-id').value}/zones`, {method:'POST', body:JSON.stringify({zone_id:document.getElementById('zone-id').value, domain:document.getElementById('zone-domain').value, tunnel_id:document.getElementById('zone-tunnel').value})});
       closeModal('add-zone-modal');
       loadAccounts(); loadStats();
     }
 
-    async function removeZone(accId, zoneId) {
-      if (!confirm('Remove this zone?')) return;
-      await fetchJSON(`/api/accounts/${accId}/zones/${zoneId}`, { method:'DELETE' });
-      loadAccounts(); loadStats();
-    }
+    async function removeZone(accId, zoneId) { if (!confirm('Remove zone?')) return; await fetchJSON(`/api/accounts/${accId}/zones/${zoneId}`, {method:'DELETE'}); loadAccounts(); loadStats(); }
 
     async function addMapping(e) {
       e.preventDefault();
-      await fetchJSON('/api/mappings', { method:'POST', body:JSON.stringify({
-        account_id: document.getElementById('map-acc-id').value,
-        zone_id: document.getElementById('map-zone-id').value,
-        subdomain: document.getElementById('map-sub').value,
-        port: parseInt(document.getElementById('map-port').value),
-        description: document.getElementById('map-desc').value
-      })});
+      await fetchJSON('/api/mappings', {method:'POST', body:JSON.stringify({account_id:document.getElementById('map-acc-id').value, zone_id:document.getElementById('map-zone-id').value, subdomain:document.getElementById('map-sub').value, port:parseInt(document.getElementById('map-port').value), description:document.getElementById('map-desc').value})});
       closeModal('add-mapping-modal');
       loadAccounts(); loadMappings(); loadStats();
     }
 
     async function discoverZones(accId) {
       const zones = await fetchJSON(`/api/accounts/${accId}/discover`);
-      if (zones?.length) alert('Found zones:\n' + zones.map(z => `${z.domain} (${z.zone_id})`).join('\n'));
+      if (zones?.length) alert('Found:\n' + zones.map(z => `${z.domain} (${z.zone_id})`).join('\n'));
       else alert('No zones found');
-    }
-
-    async function generateAndDeploy() {
-      if (!confirm('Generate nginx configs and deploy all DNS records?')) return;
-      await fetchJSON('/api/generate', { method:'POST' });
-      const result = await fetchJSON('/api/deploy', { method:'POST' });
-      alert(result?.success ? 'Deployed!' : 'Error');
-      loadStats();
     }
 
     function loadAll() { loadStats(); loadAccounts(); loadMappings(); }
