@@ -104,10 +104,42 @@ async function deployMappingsForZone(accountId, zoneId, domain, tunnelId, mappin
   return results;
 }
 
+async function listTunnelsForAccount(accountId) {
+  try {
+    const config = loadConfig();
+    const account = config.accounts.find(a => a.id === accountId);
+    if (!account) throw new Error(`Account not found: ${accountId}`);
+
+    const client = getClientForAccount(accountId);
+    const accountIdCF = account.account_id || await getAccountIdFromZone(accountId);
+    const response = await client.get(`/accounts/${accountIdCF}/cfd_tunnel`);
+    return response.data.result.map(t => ({
+      id: t.id,
+      name: t.name,
+      status: t.status,
+      created_at: t.created_at,
+      tun_type: t.tun_type
+    }));
+  } catch (error) {
+    return [];
+  }
+}
+
+async function getAccountIdFromZone(accountId) {
+  const config = loadConfig();
+  const account = config.accounts.find(a => a.id === accountId);
+  if (!account || !account.zones?.length) throw new Error('No zones configured');
+
+  const client = getClientForAccount(accountId);
+  const response = await client.get(`/zones/${account.zones[0].zone_id}`);
+  return response.data.result.account.id;
+}
+
 module.exports = {
   getClientForAccount, getClientForZone,
   listDNSRecords, createDNSRecord, deleteDNSRecord,
   getZoneInfo, listZonesForAccount,
   verifyAccount, discoverZones,
-  deployMappingsForZone
+  deployMappingsForZone,
+  listTunnelsForAccount, getAccountIdFromZone
 };

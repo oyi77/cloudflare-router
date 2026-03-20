@@ -1,14 +1,52 @@
 const express = require('express');
 const cors = require('cors');
-const morgan = require('morgan');
 const path = require('path');
-const { loadConfig, addAccount, removeAccount, addZoneToAccount, removeZoneFromAccount, addMapping, removeMapping, toggleMapping, getAllMappings, getConfigDir } = require('./config');
+const fs = require('fs');
+const { loadConfig, addAccount, removeAccount, addZoneToAccount, removeZoneFromAccount, addMapping, removeMapping, toggleMapping, getAllMappings } = require('./config');
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
-const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords } = require('./cloudflare');
+const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords, listTunnelsForAccount, getAccountIdFromZone } = require('./cloudflare');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+function loadEnv() {
+  const envPath = path.join(process.env.HOME, '.cloudflare-router', '.env');
+  if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, 'utf8').split('\n');
+    for (const line of lines) {
+      const [key, ...val] = line.split('=');
+      if (key && val.length) process.env[key.trim()] = val.join('=').trim();
+    }
+  }
+}
+loadEnv();
+
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || '';
+const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
+
+function authMiddleware(req, res, next) {
+  if (!DASHBOARD_PASSWORD && !AUTH_TOKEN) return next();
+  const token = req.headers['authorization']?.replace('Bearer ', '') || req.query?.token;
+  if (token === AUTH_TOKEN || token === DASHBOARD_PASSWORD) return next();
+  res.status(401).json({ error: 'Unauthorized', code: 'auth_required' });
+}
+
+app.post('/api/auth/login', (req, res) => {
+  const { password } = req.body;
+  if (!DASHBOARD_PASSWORD) return res.json({ success: true, token: '' });
+  if (password === DASHBOARD_PASSWORD) return res.json({ success: true, token: DASHBOARD_PASSWORD });
+  res.status(401).json({ error: 'Invalid password' });
+});
+
+app.get('/api/auth/check', (req, res) => {
+  res.json({ auth_required: !!DASHBOARD_PASSWORD || !!AUTH_TOKEN });
+});
+
+app.use('/api', (req, res, next) => {
+  if (req.path === '/auth/login' || req.path === '/auth/check') return next();
+  authMiddleware(req, res, next);
+});
 
 app.get('/api/accounts', (req, res) => {
   try {
@@ -70,6 +108,47 @@ app.get('/api/accounts/:id/zones/:zoneId/dns', async (req, res) => {
   try {
     const records = await listDNSRecords(req.params.id, req.params.zoneId);
     res.json(records);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.get('/api/accounts/:id/tunnels', async (req, res) => {
+  try {
+    const tunnels = await listTunnelsForAccount(req.params.id);
+    res.json(tunnels);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.get('/api/dns/all', async (req, res) => {
+  try {
+    const config = loadConfig();
+    const allDNS = [];
+    for (const account of config.accounts || []) {
+      for (const zone of account.zones || []) {
+        try {
+          const records = await listDNSRecords(account.id, zone.zone_id);
+          records.forEach(r => {
+            allDNS.push({ ...r, account_name: account.name, account_id: account.id, zone_domain: zone.domain });
+          });
+        } catch (e) { }
+      }
+    }
+    res.json(allDNS);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.get('/api/tunnels/all', async (req, res) => {
+  try {
+    const config = loadConfig();
+    const allTunnels = [];
+    for (const account of config.accounts || []) {
+      try {
+        const tunnels = await listTunnelsForAccount(account.id);
+        tunnels.forEach(t => {
+          allTunnels.push({ ...t, account_name: account.name, account_id: account.id });
+        });
+      } catch (e) { }
+    }
+    res.json(allTunnels);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
@@ -147,6 +226,7 @@ function startServer(port = 7070) {
     app.listen(port, '0.0.0.0', () => {
       console.log(`Dashboard: http://localhost:${port}`);
       console.log(`API: http://localhost:${port}/api`);
+      if (DASHBOARD_PASSWORD) console.log(`Auth: Password protected`);
       resolve();
     });
   });

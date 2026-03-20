@@ -23,6 +23,7 @@
     .badge-ok { background:#052e16; color:#4ade80; }
     .badge-warn { background:#422006; color:#fbbf24; }
     .badge-err { background:#450a0a; color:#f87171; }
+    .badge-info { background:#172554; color:#60a5fa; }
     .btn { padding:8px 16px; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; transition:all .15s; }
     .btn-p { background:#f97316; color:#fff; } .btn-p:hover { background:#ea580c; }
     .btn-s { background:#262626; color:#e5e5e5; } .btn-s:hover { background:#333; }
@@ -43,46 +44,83 @@
     .tab { padding:8px 16px; border-radius:8px; cursor:pointer; font-size:14px; background:#262626; color:#a3a3a3; }
     .tab.active { background:#f97316; color:#fff; }
     .actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .login-box { max-width:400px; margin:100px auto; background:#171717; border:1px solid #333; border-radius:16px; padding:40px; text-align:center; }
+    .login-box h2 { margin-bottom:24px; color:#fff; }
+    .login-box .input { margin-bottom:16px; }
+    .hidden { display:none !important; }
   </style>
 </head>
 <body>
-  <header>
-    <div class="container">
-      <h1>Cloudflare Router</h1>
-      <p>Manage multiple Cloudflare accounts, zones, and subdomains from one dashboard</p>
+  <div id="login-screen">
+    <header><div class="container" style="text-align:center"><h1>Cloudflare Router</h1><p>Enter password to continue</p></div></header>
+    <div class="login-box">
+      <h2>Dashboard Login</h2>
+      <form onsubmit="login(event)">
+        <input class="input" id="login-password" type="password" placeholder="Password" required>
+        <button type="submit" class="btn btn-p" style="width:100%">Login</button>
+      </form>
+      <p id="login-error" style="color:#f87171;margin-top:12px;display:none">Invalid password</p>
     </div>
-  </header>
-  <div class="container">
-    <div class="grid" id="stats">
-      <div class="card"><h3>Accounts</h3><div class="stat" id="s-acc">-</div><div class="stat-sm">Cloudflare accounts</div></div>
-      <div class="card"><h3>Zones</h3><div class="stat" id="s-zones">-</div><div class="stat-sm">DNS zones</div></div>
-      <div class="card"><h3>Mappings</h3><div class="stat" id="s-map">-</div><div class="stat-sm">Active subdomains</div></div>
-      <div class="card"><h3>Nginx</h3><div class="stat" id="s-nginx" style="font-size:20px">-</div><div class="stat-sm">Reverse proxy</div></div>
-    </div>
+  </div>
 
-    <div class="tabs">
-      <div class="tab active" onclick="showTab('accounts')">Accounts</div>
-      <div class="tab" onclick="showTab('mappings')">All Mappings</div>
-    </div>
-
-    <div id="tab-accounts">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h2 style="font-size:18px;color:#fff">Cloudflare Accounts</h2>
-        <div class="actions">
-          <button class="btn btn-p" onclick="showAddAccount()">+ Add Account</button>
-          <button class="btn btn-s" onclick="generateAndDeploy()">Deploy All</button>
+  <div id="dashboard-screen" class="hidden">
+    <header>
+      <div class="container">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><h1>Cloudflare Router</h1><p>Manage accounts, zones, DNS, and tunnels</p></div>
+          <button class="btn btn-s" onclick="logout()">Logout</button>
         </div>
       </div>
-      <div id="accounts-list"></div>
-    </div>
-
-    <div id="tab-mappings" style="display:none">
-      <div class="card">
-        <h3 style="margin-bottom:16px">All Subdomain Mappings</h3>
-        <table>
-          <thead><tr><th>Subdomain</th><th>Port</th><th>Account</th><th>Zone</th><th>Status</th></tr></thead>
-          <tbody id="all-mappings"></tbody>
-        </table>
+    </header>
+    <div class="container">
+      <div class="grid" id="stats">
+        <div class="card"><h3>Accounts</h3><div class="stat" id="s-acc">-</div></div>
+        <div class="card"><h3>Zones</h3><div class="stat" id="s-zones">-</div></div>
+        <div class="card"><h3>Mappings</h3><div class="stat" id="s-map">-</div></div>
+        <div class="card"><h3>Nginx</h3><div class="stat" id="s-nginx" style="font-size:20px">-</div></div>
+      </div>
+      <div class="tabs">
+        <div class="tab active" onclick="showTab('accounts')">Accounts</div>
+        <div class="tab" onclick="showTab('mappings')">Mappings</div>
+        <div class="tab" onclick="showTab('dns')">DNS Records</div>
+        <div class="tab" onclick="showTab('tunnels')">Tunnels</div>
+      </div>
+      <div id="tab-accounts">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h2 style="font-size:18px;color:#fff">Cloudflare Accounts</h2>
+          <div class="actions">
+            <button class="btn btn-p" onclick="showAddAccount()">+ Add Account</button>
+            <button class="btn btn-s" onclick="generateAndDeploy()">Deploy All</button>
+          </div>
+        </div>
+        <div id="accounts-list"></div>
+      </div>
+      <div id="tab-mappings" class="hidden">
+        <div class="card">
+          <h3 style="margin-bottom:16px">All Subdomain Mappings</h3>
+          <table><thead><tr><th>Subdomain</th><th>Port</th><th>Account</th><th>Zone</th><th>Status</th></tr></thead>
+          <tbody id="all-mappings"></tbody></table>
+        </div>
+      </div>
+      <div id="tab-dns" class="hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h2 style="font-size:18px;color:#fff">All DNS Records</h2>
+          <button class="btn btn-s" onclick="loadDNS()">Refresh</button>
+        </div>
+        <div class="card">
+          <table><thead><tr><th>Name</th><th>Type</th><th>Content</th><th>Proxied</th><th>Account</th><th>Zone</th></tr></thead>
+          <tbody id="dns-list"><tr><td colspan="6" style="text-align:center;color:#737373">Loading...</td></tr></tbody></table>
+        </div>
+      </div>
+      <div id="tab-tunnels" class="hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h2 style="font-size:18px;color:#fff">All Tunnels</h2>
+          <button class="btn btn-s" onclick="loadTunnels()">Refresh</button>
+        </div>
+        <div class="card">
+          <table><thead><tr><th>Name</th><th>ID</th><th>Status</th><th>Type</th><th>Account</th><th>Created</th></tr></thead>
+          <tbody id="tunnels-list"><tr><td colspan="6" style="text-align:center;color:#737373">Loading...</td></tr></tbody></table>
+        </div>
       </div>
     </div>
   </div>
@@ -110,7 +148,6 @@
         <div style="margin-bottom:14px"><label>Zone ID</label><input class="input" id="zone-id" placeholder="Cloudflare Zone ID" required></div>
         <div style="margin-bottom:14px"><label>Domain</label><input class="input" id="zone-domain" placeholder="example.com" required></div>
         <div style="margin-bottom:14px"><label>Tunnel ID</label><input class="input" id="zone-tunnel" placeholder="Cloudflare Tunnel ID"></div>
-        <div style="margin-bottom:14px"><label>Tunnel Credentials Path</label><input class="input" id="zone-creds" placeholder="/path/to/credentials.json"></div>
         <div style="display:flex;gap:8px;margin-top:20px">
           <button type="submit" class="btn btn-p">Add Zone</button>
           <button type="button" class="btn btn-s" onclick="closeModal('add-zone-modal')">Cancel</button>
@@ -138,21 +175,78 @@
 
   <script>
     const API = window.location.origin;
+    let authToken = localStorage.getItem('cf-router-token') || '';
+
     async function fetchJSON(url, opts = {}) {
-      const res = await fetch(API + url, { headers: {'Content-Type':'application/json'}, ...opts });
+      const headers = { 'Content-Type': 'application/json', ...opts.headers };
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+      const res = await fetch(API + url, { ...opts, headers });
+      if (res.status === 401) { showLogin(); return null; }
       return res.json();
     }
+
     function showModal(id) { document.getElementById(id).style.display = 'block'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    function showLogin() {
+      document.getElementById('login-screen').classList.remove('hidden');
+      document.getElementById('dashboard-screen').classList.add('hidden');
+      authToken = '';
+      localStorage.removeItem('cf-router-token');
+    }
+
+    function showDashboard() {
+      document.getElementById('login-screen').classList.add('hidden');
+      document.getElementById('dashboard-screen').classList.remove('hidden');
+    }
+
+    async function checkAuth() {
+      const check = await fetch(API + '/api/auth/check').then(r => r.json());
+      if (!check.auth_required) { showDashboard(); loadAll(); return; }
+      if (authToken) {
+        const test = await fetchJSON('/api/status');
+        if (test) { showDashboard(); loadAll(); return; }
+      }
+      showLogin();
+    }
+
+    async function login(e) {
+      e.preventDefault();
+      const password = document.getElementById('login-password').value;
+      const res = await fetch(API + '/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      }).then(r => r.json());
+      if (res.success) {
+        authToken = res.token;
+        localStorage.setItem('cf-router-token', authToken);
+        showDashboard();
+        loadAll();
+      } else {
+        document.getElementById('login-error').style.display = 'block';
+      }
+    }
+
+    function logout() {
+      authToken = '';
+      localStorage.removeItem('cf-router-token');
+      showLogin();
+    }
+
     function showTab(tab) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       event.target.classList.add('active');
-      document.getElementById('tab-accounts').style.display = tab === 'accounts' ? 'block' : 'none';
-      document.getElementById('tab-mappings').style.display = tab === 'mappings' ? 'block' : 'none';
+      ['accounts','mappings','dns','tunnels'].forEach(t => {
+        document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab);
+      });
+      if (tab === 'dns') loadDNS();
+      if (tab === 'tunnels') loadTunnels();
     }
 
     async function loadStats() {
       const s = await fetchJSON('/api/status');
+      if (!s) return;
       document.getElementById('s-acc').textContent = s.accounts;
       document.getElementById('s-zones').textContent = s.zones;
       document.getElementById('s-map').textContent = s.enabled;
@@ -161,9 +255,10 @@
 
     async function loadAccounts() {
       const accounts = await fetchJSON('/api/accounts');
+      if (!accounts) return;
       const container = document.getElementById('accounts-list');
       if (!accounts.length) {
-        container.innerHTML = '<div class="card"><p style="color:#737373;text-align:center;padding:40px">No accounts yet. Click "Add Account" to get started.</p></div>';
+        container.innerHTML = '<div class="card"><p style="color:#737373;text-align:center;padding:40px">No accounts yet</p></div>';
         return;
       }
       container.innerHTML = accounts.map(acc => `
@@ -174,8 +269,8 @@
               <div style="color:#737373;font-size:13px">${acc.email} • API Key: ${acc.api_key_masked}</div>
             </div>
             <div class="actions">
-              <button class="btn btn-s" onclick="discoverZones('${acc.id}')">Discover Zones</button>
-              <button class="btn btn-s" onclick="showAddZone('${acc.id}')">+ Add Zone</button>
+              <button class="btn btn-s" onclick="discoverZones('${acc.id}')">Discover</button>
+              <button class="btn btn-s" onclick="showAddZone('${acc.id}')">+ Zone</button>
               <button class="btn btn-d" onclick="removeAccount('${acc.id}')">Remove</button>
             </div>
           </div>
@@ -197,6 +292,7 @@
 
     async function loadMappings() {
       const mappings = await fetchJSON('/api/mappings');
+      if (!mappings) return;
       document.getElementById('all-mappings').innerHTML = mappings.length
         ? mappings.map(m => `<tr>
             <td><strong>${m.full_domain}</strong></td><td>${m.port}</td>
@@ -204,6 +300,36 @@
             <td><span class="badge ${m.enabled!==false?'badge-ok':'badge-err'}">${m.enabled!==false?'Active':'Disabled'}</span></td>
           </tr>`).join('')
         : '<tr><td colspan="5" style="text-align:center;color:#737373">No mappings yet</td></tr>';
+    }
+
+    async function loadDNS() {
+      const dns = await fetchJSON('/api/dns/all');
+      if (!dns) return;
+      document.getElementById('dns-list').innerHTML = dns.length
+        ? dns.map(r => `<tr>
+            <td><strong>${r.name}</strong></td>
+            <td><span class="badge badge-info">${r.type}</span></td>
+            <td style="color:#a3a3a3;font-family:monospace;font-size:12px">${r.content}</td>
+            <td>${r.proxied ? '<span style="color:#4ade80">Yes</span>' : 'No'}</td>
+            <td>${r.account_name}</td>
+            <td>${r.zone_domain}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="6" style="text-align:center;color:#737373">No DNS records found</td></tr>';
+    }
+
+    async function loadTunnels() {
+      const tunnels = await fetchJSON('/api/tunnels/all');
+      if (!tunnels) return;
+      document.getElementById('tunnels-list').innerHTML = tunnels.length
+        ? tunnels.map(t => `<tr>
+            <td><strong>${t.name}</strong></td>
+            <td style="font-family:monospace;font-size:12px;color:#737373">${t.id}</td>
+            <td><span class="badge ${t.status==='healthy'?'badge-ok':t.status==='down'?'badge-err':'badge-warn'}">${t.status}</span></td>
+            <td>${t.tun_type || '-'}</td>
+            <td>${t.account_name}</td>
+            <td>${t.created_at ? new Date(t.created_at).toLocaleDateString() : '-'}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="6" style="text-align:center;color:#737373">No tunnels found</td></tr>';
     }
 
     function showAddAccount() { showModal('add-account-modal'); }
@@ -236,8 +362,7 @@
       await fetchJSON(`/api/accounts/${document.getElementById('zone-acc-id').value}/zones`, { method:'POST', body:JSON.stringify({
         zone_id: document.getElementById('zone-id').value,
         domain: document.getElementById('zone-domain').value,
-        tunnel_id: document.getElementById('zone-tunnel').value,
-        tunnel_credentials: document.getElementById('zone-creds').value
+        tunnel_id: document.getElementById('zone-tunnel').value
       })});
       closeModal('add-zone-modal');
       loadAccounts(); loadStats();
@@ -264,23 +389,20 @@
 
     async function discoverZones(accId) {
       const zones = await fetchJSON(`/api/accounts/${accId}/discover`);
-      if (zones.length) {
-        alert('Found zones:\n' + zones.map(z => `${z.domain} (${z.zone_id})`).join('\n'));
-      } else {
-        alert('No zones found or API error');
-      }
+      if (zones?.length) alert('Found zones:\n' + zones.map(z => `${z.domain} (${z.zone_id})`).join('\n'));
+      else alert('No zones found');
     }
 
     async function generateAndDeploy() {
       if (!confirm('Generate nginx configs and deploy all DNS records?')) return;
       await fetchJSON('/api/generate', { method:'POST' });
       const result = await fetchJSON('/api/deploy', { method:'POST' });
-      alert(result.success ? 'Deployed!' : 'Error: ' + result.error);
+      alert(result?.success ? 'Deployed!' : 'Error');
       loadStats();
     }
 
-    loadStats(); loadAccounts(); loadMappings();
-    setInterval(loadStats, 10000);
+    function loadAll() { loadStats(); loadAccounts(); loadMappings(); }
+    checkAuth();
   </script>
 </body>
 </html>
