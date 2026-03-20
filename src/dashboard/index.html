@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloudflare Router - Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    header { background: linear-gradient(135deg, #f6821f 0%, #fcaf45 100%); color: white; padding: 30px 0; margin-bottom: 30px; }
+    header h1 { font-size: 28px; font-weight: 600; }
+    header p { opacity: 0.9; margin-top: 5px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 30px; }
+    .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .card h3 { font-size: 16px; color: #666; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .stat { font-size: 32px; font-weight: 700; color: #333; }
+    .stat-label { font-size: 14px; color: #888; margin-top: 4px; }
+    .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+    .status-ok { background: #22c55e; }
+    .status-warn { background: #f59e0b; }
+    .status-error { background: #ef4444; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }
+    th { font-weight: 600; color: #666; font-size: 13px; text-transform: uppercase; }
+    .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .badge-active { background: #dcfce7; color: #166534; }
+    .badge-inactive { background: #fee2e2; color: #991b1b; }
+    .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .btn-primary { background: #f6821f; color: white; }
+    .btn-primary:hover { background: #e5740f; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-secondary { background: #e5e7eb; color: #374151; }
+    .btn-secondary:hover { background: #d1d5db; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #374151; }
+    .form-group input, .form-group select { width: 100%; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: #f6821f; box-shadow: 0 0 0 3px rgba(246,130,31,0.1); }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+    .modal-content { background: white; border-radius: 16px; padding: 32px; max-width: 500px; margin: 100px auto; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .modal-header h2 { font-size: 20px; }
+    .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #666; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .config-section { margin-top: 20px; }
+    .config-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #f3f4f6; }
+    .config-key { font-weight: 500; color: #374151; }
+    .config-value { color: #6b7280; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>Cloudflare Router</h1>
+      <p>Manage subdomains, tunnels, and DNS from one place</p>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="grid" id="status-cards">
+      <div class="card">
+        <h3>Nginx Status</h3>
+        <div class="stat" id="nginx-status">-</div>
+        <div class="stat-label">Reverse proxy</div>
+      </div>
+      <div class="card">
+        <h3>Tunnel Status</h3>
+        <div class="stat" id="tunnel-status">-</div>
+        <div class="stat-label">Cloudflare tunnel</div>
+      </div>
+      <div class="card">
+        <h3>Active Mappings</h3>
+        <div class="stat" id="mappings-count">-</div>
+        <div class="stat-label">Subdomains</div>
+      </div>
+      <div class="card">
+        <h3>Domain</h3>
+        <div class="stat" id="domain-name" style="font-size:20px">-</div>
+        <div class="stat-label">Configured domain</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:30px">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
+        <h3 style="margin:0">Subdomain Mappings</h3>
+        <div class="actions">
+          <button class="btn btn-primary" onclick="showAddModal()">+ Add Mapping</button>
+          <button class="btn btn-secondary" onclick="fullDeploy()">Deploy All</button>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Subdomain</th>
+            <th>Port</th>
+            <th>Description</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="mappings-table">
+          <tr><td colspan="5" style="text-align:center; color:#888">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Configuration</h3>
+      <div class="config-section">
+        <div class="config-row">
+          <span class="config-key">API Token</span>
+          <span class="config-value" id="cf-token">-</span>
+        </div>
+        <div class="config-row">
+          <span class="config-key">Zone ID</span>
+          <span class="config-value" id="cf-zone">-</span>
+        </div>
+        <div class="config-row">
+          <span class="config-key">Tunnel ID</span>
+          <span class="config-value" id="cf-tunnel">-</span>
+        </div>
+        <div class="config-row">
+          <span class="config-key">Nginx Port</span>
+          <span class="config-value" id="nginx-port">-</span>
+        </div>
+      </div>
+      <div style="margin-top:20px">
+        <button class="btn btn-secondary" onclick="showConfigModal()">Edit Config</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="add-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Add Mapping</h2>
+        <button class="modal-close" onclick="closeAddModal()">&times;</button>
+      </div>
+      <form onsubmit="addMapping(event)">
+        <div class="form-group">
+          <label>Subdomain</label>
+          <input type="text" id="input-subdomain" placeholder="api" required>
+          <small style="color:#888; font-size:12px">Full domain: <span id="preview-domain">api.example.com</span></small>
+        </div>
+        <div class="form-group">
+          <label>Local Port</label>
+          <input type="number" id="input-port" placeholder="3000" required>
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <input type="text" id="input-description" placeholder="Backend API">
+        </div>
+        <div style="display:flex; gap:10px; margin-top:24px">
+          <button type="submit" class="btn btn-primary">Add Mapping</button>
+          <button type="button" class="btn btn-secondary" onclick="closeAddModal()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="config-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Edit Configuration</h2>
+        <button class="modal-close" onclick="closeConfigModal()">&times;</button>
+      </div>
+      <form onsubmit="saveConfig(event)">
+        <div class="form-group">
+          <label>Cloudflare API Token</label>
+          <input type="password" id="config-token" placeholder="Your Cloudflare API token">
+        </div>
+        <div class="form-group">
+          <label>Zone ID</label>
+          <input type="text" id="config-zone" placeholder="Your Zone ID">
+        </div>
+        <div class="form-group">
+          <label>Tunnel ID</label>
+          <input type="text" id="config-tunnel" placeholder="Your Tunnel ID">
+        </div>
+        <div class="form-group">
+          <label>Domain</label>
+          <input type="text" id="config-domain" placeholder="example.com">
+        </div>
+        <div class="form-group">
+          <label>Nginx Listen Port</label>
+          <input type="number" id="config-nginx-port" placeholder="6969">
+        </div>
+        <div style="display:flex; gap:10px; margin-top:24px">
+          <button type="submit" class="btn btn-primary">Save Config</button>
+          <button type="button" class="btn btn-secondary" onclick="closeConfigModal()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const API = window.location.origin;
+
+    async function fetchJSON(url, options = {}) {
+      const res = await fetch(API + url, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options
+      });
+      return res.json();
+    }
+
+    async function loadStatus() {
+      try {
+        const status = await fetchJSON('/api/status');
+        document.getElementById('nginx-status').innerHTML = status.nginx.running
+          ? '<span class="status-indicator status-ok"></span>Running'
+          : '<span class="status-indicator status-error"></span>Stopped';
+        document.getElementById('tunnel-status').innerHTML = status.tunnel.running
+          ? '<span class="status-indicator status-ok"></span>Running'
+          : '<span class="status-indicator status-warn"></span>Stopped';
+        document.getElementById('mappings-count').textContent = status.mappings.enabled;
+        document.getElementById('domain-name').textContent = status.config.domain;
+      } catch (e) {
+        console.error('Failed to load status:', e);
+      }
+    }
+
+    async function loadMappings() {
+      try {
+        const mappings = await fetchJSON('/api/mappings');
+        const tbody = document.getElementById('mappings-table');
+        if (mappings.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888">No mappings yet. Click "Add Mapping" to get started.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = mappings.map(m => `
+          <tr>
+            <td><strong>${m.subdomain}</strong></td>
+            <td>${m.port}</td>
+            <td>${m.description || '-'}</td>
+            <td><span class="badge ${m.enabled !== false ? 'badge-active' : 'badge-inactive'}">${m.enabled !== false ? 'Active' : 'Disabled'}</span></td>
+            <td>
+              <button class="btn btn-secondary" style="padding:6px 12px; font-size:12px" onclick="toggleMapping('${m.subdomain}', ${m.enabled === false})">${m.enabled !== false ? 'Disable' : 'Enable'}</button>
+              <button class="btn btn-danger" style="padding:6px 12px; font-size:12px" onclick="deleteMapping('${m.subdomain}')">Delete</button>
+            </td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        console.error('Failed to load mappings:', e);
+      }
+    }
+
+    async function loadConfig() {
+      try {
+        const config = await fetchJSON('/api/config');
+        document.getElementById('cf-token').textContent = config.cloudflare?.api_token_masked || 'Not set';
+        document.getElementById('cf-zone').textContent = config.cloudflare?.zone_id || 'Not set';
+        document.getElementById('cf-tunnel').textContent = config.cloudflare?.tunnel_id || 'Not set';
+        document.getElementById('nginx-port').textContent = config.nginx?.listen_port || 6969;
+      } catch (e) {
+        console.error('Failed to load config:', e);
+      }
+    }
+
+    function showAddModal() {
+      document.getElementById('add-modal').style.display = 'block';
+      loadConfig().then(() => {
+        const config = document.getElementById('cf-token').textContent;
+        const domain = document.getElementById('domain-name').textContent;
+        document.getElementById('preview-domain').textContent = domain !== '-' ? `example.${domain}` : 'example.com';
+      });
+    }
+
+    function closeAddModal() {
+      document.getElementById('add-modal').style.display = 'none';
+    }
+
+    function showConfigModal() {
+      document.getElementById('config-modal').style.display = 'block';
+    }
+
+    function closeConfigModal() {
+      document.getElementById('config-modal').style.display = 'none';
+    }
+
+    async function addMapping(e) {
+      e.preventDefault();
+      const subdomain = document.getElementById('input-subdomain').value;
+      const port = parseInt(document.getElementById('input-port').value);
+      const description = document.getElementById('input-description').value;
+
+      await fetchJSON('/api/mappings', {
+        method: 'POST',
+        body: JSON.stringify({ subdomain, port, description })
+      });
+
+      closeAddModal();
+      loadMappings();
+      loadStatus();
+    }
+
+    async function deleteMapping(subdomain) {
+      if (!confirm(`Delete mapping for ${subdomain}?`)) return;
+      await fetchJSON(`/api/mappings/${subdomain}`, { method: 'DELETE' });
+      loadMappings();
+      loadStatus();
+    }
+
+    async function toggleMapping(subdomain, enable) {
+      await fetchJSON(`/api/mappings/${subdomain}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: enable })
+      });
+      loadMappings();
+      loadStatus();
+    }
+
+    async function saveConfig(e) {
+      e.preventDefault();
+      const config = {
+        cloudflare: {
+          api_token: document.getElementById('config-token').value || undefined,
+          zone_id: document.getElementById('config-zone').value || undefined,
+          tunnel_id: document.getElementById('config-tunnel').value || undefined,
+          domain: document.getElementById('config-domain').value || undefined
+        },
+        nginx: {
+          listen_port: parseInt(document.getElementById('config-nginx-port').value) || undefined
+        }
+      };
+
+      await fetchJSON('/api/config', {
+        method: 'PUT',
+        body: JSON.stringify(config)
+      });
+
+      closeConfigModal();
+      loadConfig();
+    }
+
+    async function fullDeploy() {
+      if (!confirm('Deploy all mappings? This will generate nginx configs, tunnel configs, and create DNS records.')) return;
+      const result = await fetchJSON('/api/full-deploy', { method: 'POST' });
+      alert(result.success ? 'Deployed successfully!' : `Error: ${result.error}`);
+      loadStatus();
+    }
+
+    document.getElementById('input-subdomain').addEventListener('input', function() {
+      const domain = document.getElementById('domain-name').textContent;
+      const subdomain = this.value;
+      document.getElementById('preview-domain').textContent = domain !== '-'
+        ? `${subdomain}.${domain}`
+        : `${subdomain}.example.com`;
+    });
+
+    loadStatus();
+    loadMappings();
+    loadConfig();
+
+    setInterval(loadStatus, 10000);
+  </script>
+</body>
+</html>
