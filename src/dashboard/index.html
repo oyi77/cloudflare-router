@@ -3,192 +3,134 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cloudflare Router - Dashboard</title>
+  <title>Cloudflare Router</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    header { background: linear-gradient(135deg, #f6821f 0%, #fcaf45 100%); color: white; padding: 30px 0; margin-bottom: 30px; }
-    header h1 { font-size: 28px; font-weight: 600; }
-    header p { opacity: 0.9; margin-top: 5px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 30px; }
-    .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-    .card h3 { font-size: 16px; color: #666; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
-    .stat { font-size: 32px; font-weight: 700; color: #333; }
-    .stat-label { font-size: 14px; color: #888; margin-top: 4px; }
-    .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
-    .status-ok { background: #22c55e; }
-    .status-warn { background: #f59e0b; }
-    .status-error { background: #ef4444; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; }
-    th { font-weight: 600; color: #666; font-size: 13px; text-transform: uppercase; }
-    .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-    .badge-active { background: #dcfce7; color: #166534; }
-    .badge-inactive { background: #fee2e2; color: #991b1b; }
-    .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-    .btn-primary { background: #f6821f; color: white; }
-    .btn-primary:hover { background: #e5740f; }
-    .btn-danger { background: #ef4444; color: white; }
-    .btn-danger:hover { background: #dc2626; }
-    .btn-secondary { background: #e5e7eb; color: #374151; }
-    .btn-secondary:hover { background: #d1d5db; }
-    .form-group { margin-bottom: 16px; }
-    .form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #374151; }
-    .form-group input, .form-group select { width: 100%; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; }
-    .form-group input:focus, .form-group select:focus { outline: none; border-color: #f6821f; box-shadow: 0 0 0 3px rgba(246,130,31,0.1); }
-    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
-    .modal-content { background: white; border-radius: 16px; padding: 32px; max-width: 500px; margin: 100px auto; }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-    .modal-header h2 { font-size: 20px; }
-    .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #666; }
-    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
-    .config-section { margin-top: 20px; }
-    .config-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #f3f4f6; }
-    .config-key { font-weight: 500; color: #374151; }
-    .config-value { color: #6b7280; font-family: monospace; }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#0a0a0a; color:#e5e5e5; }
+    .container { max-width:1400px; margin:0 auto; padding:24px; }
+    header { background:linear-gradient(135deg,#f97316 0%,#ea580c 100%); padding:40px 0; margin-bottom:32px; }
+    header h1 { font-size:32px; font-weight:700; color:#fff; }
+    header p { color:rgba(255,255,255,0.8); margin-top:4px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; margin-bottom:24px; }
+    .card { background:#171717; border:1px solid #262626; border-radius:12px; padding:20px; }
+    .card h3 { font-size:14px; color:#a3a3a3; margin-bottom:8px; }
+    .stat { font-size:36px; font-weight:700; color:#fff; }
+    .stat-sm { font-size:14px; color:#737373; margin-top:4px; }
+    table { width:100%; border-collapse:collapse; }
+    th { text-align:left; padding:12px 16px; font-size:12px; text-transform:uppercase; color:#737373; border-bottom:1px solid #262626; }
+    td { padding:12px 16px; border-bottom:1px solid #1f1f1f; }
+    .badge { padding:4px 10px; border-radius:20px; font-size:11px; font-weight:600; }
+    .badge-ok { background:#052e16; color:#4ade80; }
+    .badge-warn { background:#422006; color:#fbbf24; }
+    .badge-err { background:#450a0a; color:#f87171; }
+    .btn { padding:8px 16px; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; transition:all .15s; }
+    .btn-p { background:#f97316; color:#fff; } .btn-p:hover { background:#ea580c; }
+    .btn-s { background:#262626; color:#e5e5e5; } .btn-s:hover { background:#333; }
+    .btn-d { background:#7f1d1d; color:#fca5a5; } .btn-d:hover { background:#991b1b; }
+    .input { width:100%; padding:10px 14px; background:#171717; border:1px solid #333; border-radius:8px; color:#e5e5e5; font-size:14px; }
+    .input:focus { outline:none; border-color:#f97316; }
+    label { display:block; font-size:13px; color:#a3a3a3; margin-bottom:6px; }
+    .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.7); z-index:1000; }
+    .modal-box { background:#171717; border:1px solid #333; border-radius:16px; padding:28px; max-width:500px; margin:80px auto; }
+    .modal-hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+    .modal-hdr h2 { font-size:20px; color:#fff; }
+    .close-btn { background:none; border:none; font-size:24px; cursor:pointer; color:#737373; }
+    .account-card { background:#171717; border:1px solid #262626; border-radius:12px; padding:20px; margin-bottom:16px; }
+    .account-hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+    .zone-row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #1f1f1f; }
+    .zone-row:last-child { border-bottom:none; }
+    .tabs { display:flex; gap:8px; margin-bottom:24px; }
+    .tab { padding:8px 16px; border-radius:8px; cursor:pointer; font-size:14px; background:#262626; color:#a3a3a3; }
+    .tab.active { background:#f97316; color:#fff; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; }
   </style>
 </head>
 <body>
   <header>
     <div class="container">
       <h1>Cloudflare Router</h1>
-      <p>Manage subdomains, tunnels, and DNS from one place</p>
+      <p>Manage multiple Cloudflare accounts, zones, and subdomains from one dashboard</p>
     </div>
   </header>
-
   <div class="container">
-    <div class="grid" id="status-cards">
-      <div class="card">
-        <h3>Nginx Status</h3>
-        <div class="stat" id="nginx-status">-</div>
-        <div class="stat-label">Reverse proxy</div>
-      </div>
-      <div class="card">
-        <h3>Tunnel Status</h3>
-        <div class="stat" id="tunnel-status">-</div>
-        <div class="stat-label">Cloudflare tunnel</div>
-      </div>
-      <div class="card">
-        <h3>Active Mappings</h3>
-        <div class="stat" id="mappings-count">-</div>
-        <div class="stat-label">Subdomains</div>
-      </div>
-      <div class="card">
-        <h3>Domain</h3>
-        <div class="stat" id="domain-name" style="font-size:20px">-</div>
-        <div class="stat-label">Configured domain</div>
-      </div>
+    <div class="grid" id="stats">
+      <div class="card"><h3>Accounts</h3><div class="stat" id="s-acc">-</div><div class="stat-sm">Cloudflare accounts</div></div>
+      <div class="card"><h3>Zones</h3><div class="stat" id="s-zones">-</div><div class="stat-sm">DNS zones</div></div>
+      <div class="card"><h3>Mappings</h3><div class="stat" id="s-map">-</div><div class="stat-sm">Active subdomains</div></div>
+      <div class="card"><h3>Nginx</h3><div class="stat" id="s-nginx" style="font-size:20px">-</div><div class="stat-sm">Reverse proxy</div></div>
     </div>
 
-    <div class="card" style="margin-bottom:30px">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
-        <h3 style="margin:0">Subdomain Mappings</h3>
+    <div class="tabs">
+      <div class="tab active" onclick="showTab('accounts')">Accounts</div>
+      <div class="tab" onclick="showTab('mappings')">All Mappings</div>
+    </div>
+
+    <div id="tab-accounts">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="font-size:18px;color:#fff">Cloudflare Accounts</h2>
         <div class="actions">
-          <button class="btn btn-primary" onclick="showAddModal()">+ Add Mapping</button>
-          <button class="btn btn-secondary" onclick="fullDeploy()">Deploy All</button>
+          <button class="btn btn-p" onclick="showAddAccount()">+ Add Account</button>
+          <button class="btn btn-s" onclick="generateAndDeploy()">Deploy All</button>
         </div>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Subdomain</th>
-            <th>Port</th>
-            <th>Description</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="mappings-table">
-          <tr><td colspan="5" style="text-align:center; color:#888">Loading...</td></tr>
-        </tbody>
-      </table>
+      <div id="accounts-list"></div>
     </div>
 
-    <div class="card">
-      <h3>Configuration</h3>
-      <div class="config-section">
-        <div class="config-row">
-          <span class="config-key">API Token</span>
-          <span class="config-value" id="cf-token">-</span>
-        </div>
-        <div class="config-row">
-          <span class="config-key">Zone ID</span>
-          <span class="config-value" id="cf-zone">-</span>
-        </div>
-        <div class="config-row">
-          <span class="config-key">Tunnel ID</span>
-          <span class="config-value" id="cf-tunnel">-</span>
-        </div>
-        <div class="config-row">
-          <span class="config-key">Nginx Port</span>
-          <span class="config-value" id="nginx-port">-</span>
-        </div>
-      </div>
-      <div style="margin-top:20px">
-        <button class="btn btn-secondary" onclick="showConfigModal()">Edit Config</button>
+    <div id="tab-mappings" style="display:none">
+      <div class="card">
+        <h3 style="margin-bottom:16px">All Subdomain Mappings</h3>
+        <table>
+          <thead><tr><th>Subdomain</th><th>Port</th><th>Account</th><th>Zone</th><th>Status</th></tr></thead>
+          <tbody id="all-mappings"></tbody>
+        </table>
       </div>
     </div>
   </div>
 
-  <div class="modal" id="add-modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Add Mapping</h2>
-        <button class="modal-close" onclick="closeAddModal()">&times;</button>
-      </div>
-      <form onsubmit="addMapping(event)">
-        <div class="form-group">
-          <label>Subdomain</label>
-          <input type="text" id="input-subdomain" placeholder="api" required>
-          <small style="color:#888; font-size:12px">Full domain: <span id="preview-domain">api.example.com</span></small>
-        </div>
-        <div class="form-group">
-          <label>Local Port</label>
-          <input type="number" id="input-port" placeholder="3000" required>
-        </div>
-        <div class="form-group">
-          <label>Description</label>
-          <input type="text" id="input-description" placeholder="Backend API">
-        </div>
-        <div style="display:flex; gap:10px; margin-top:24px">
-          <button type="submit" class="btn btn-primary">Add Mapping</button>
-          <button type="button" class="btn btn-secondary" onclick="closeAddModal()">Cancel</button>
+  <div class="modal" id="add-account-modal">
+    <div class="modal-box">
+      <div class="modal-hdr"><h2>Add Cloudflare Account</h2><button class="close-btn" onclick="closeModal('add-account-modal')">&times;</button></div>
+      <form onsubmit="addAccount(event)">
+        <div style="margin-bottom:14px"><label>Account Name</label><input class="input" id="acc-name" placeholder="Personal" required></div>
+        <div style="margin-bottom:14px"><label>Email</label><input class="input" id="acc-email" placeholder="user@example.com" required></div>
+        <div style="margin-bottom:14px"><label>Global API Key or API Token</label><input class="input" id="acc-key" type="password" placeholder="Your Cloudflare API key" required></div>
+        <div style="display:flex;gap:8px;margin-top:20px">
+          <button type="submit" class="btn btn-p">Add Account</button>
+          <button type="button" class="btn btn-s" onclick="closeModal('add-account-modal')">Cancel</button>
         </div>
       </form>
     </div>
   </div>
 
-  <div class="modal" id="config-modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Edit Configuration</h2>
-        <button class="modal-close" onclick="closeConfigModal()">&times;</button>
-      </div>
-      <form onsubmit="saveConfig(event)">
-        <div class="form-group">
-          <label>Cloudflare API Token</label>
-          <input type="password" id="config-token" placeholder="Your Cloudflare API token">
+  <div class="modal" id="add-zone-modal">
+    <div class="modal-box">
+      <div class="modal-hdr"><h2>Add Zone</h2><button class="close-btn" onclick="closeModal('add-zone-modal')">&times;</button></div>
+      <form onsubmit="addZone(event)">
+        <input type="hidden" id="zone-acc-id">
+        <div style="margin-bottom:14px"><label>Zone ID</label><input class="input" id="zone-id" placeholder="Cloudflare Zone ID" required></div>
+        <div style="margin-bottom:14px"><label>Domain</label><input class="input" id="zone-domain" placeholder="example.com" required></div>
+        <div style="margin-bottom:14px"><label>Tunnel ID</label><input class="input" id="zone-tunnel" placeholder="Cloudflare Tunnel ID"></div>
+        <div style="margin-bottom:14px"><label>Tunnel Credentials Path</label><input class="input" id="zone-creds" placeholder="/path/to/credentials.json"></div>
+        <div style="display:flex;gap:8px;margin-top:20px">
+          <button type="submit" class="btn btn-p">Add Zone</button>
+          <button type="button" class="btn btn-s" onclick="closeModal('add-zone-modal')">Cancel</button>
         </div>
-        <div class="form-group">
-          <label>Zone ID</label>
-          <input type="text" id="config-zone" placeholder="Your Zone ID">
-        </div>
-        <div class="form-group">
-          <label>Tunnel ID</label>
-          <input type="text" id="config-tunnel" placeholder="Your Tunnel ID">
-        </div>
-        <div class="form-group">
-          <label>Domain</label>
-          <input type="text" id="config-domain" placeholder="example.com">
-        </div>
-        <div class="form-group">
-          <label>Nginx Listen Port</label>
-          <input type="number" id="config-nginx-port" placeholder="6969">
-        </div>
-        <div style="display:flex; gap:10px; margin-top:24px">
-          <button type="submit" class="btn btn-primary">Save Config</button>
-          <button type="button" class="btn btn-secondary" onclick="closeConfigModal()">Cancel</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="add-mapping-modal">
+    <div class="modal-box">
+      <div class="modal-hdr"><h2>Add Subdomain Mapping</h2><button class="close-btn" onclick="closeModal('add-mapping-modal')">&times;</button></div>
+      <form onsubmit="addMapping(event)">
+        <input type="hidden" id="map-acc-id">
+        <input type="hidden" id="map-zone-id">
+        <div style="margin-bottom:14px"><label>Subdomain</label><input class="input" id="map-sub" placeholder="api" required></div>
+        <div style="margin-bottom:14px"><label>Local Port</label><input class="input" id="map-port" type="number" placeholder="3000" required></div>
+        <div style="margin-bottom:14px"><label>Description</label><input class="input" id="map-desc" placeholder="Backend API"></div>
+        <div style="display:flex;gap:8px;margin-top:20px">
+          <button type="submit" class="btn btn-p">Add Mapping</button>
+          <button type="button" class="btn btn-s" onclick="closeModal('add-mapping-modal')">Cancel</button>
         </div>
       </form>
     </div>
@@ -196,164 +138,149 @@
 
   <script>
     const API = window.location.origin;
-
-    async function fetchJSON(url, options = {}) {
-      const res = await fetch(API + url, {
-        headers: { 'Content-Type': 'application/json' },
-        ...options
-      });
+    async function fetchJSON(url, opts = {}) {
+      const res = await fetch(API + url, { headers: {'Content-Type':'application/json'}, ...opts });
       return res.json();
     }
+    function showModal(id) { document.getElementById(id).style.display = 'block'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+    function showTab(tab) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('tab-accounts').style.display = tab === 'accounts' ? 'block' : 'none';
+      document.getElementById('tab-mappings').style.display = tab === 'mappings' ? 'block' : 'none';
+    }
 
-    async function loadStatus() {
-      try {
-        const status = await fetchJSON('/api/status');
-        document.getElementById('nginx-status').innerHTML = status.nginx.running
-          ? '<span class="status-indicator status-ok"></span>Running'
-          : '<span class="status-indicator status-error"></span>Stopped';
-        document.getElementById('tunnel-status').innerHTML = status.tunnel.running
-          ? '<span class="status-indicator status-ok"></span>Running'
-          : '<span class="status-indicator status-warn"></span>Stopped';
-        document.getElementById('mappings-count').textContent = status.mappings.enabled;
-        document.getElementById('domain-name').textContent = status.config.domain;
-      } catch (e) {
-        console.error('Failed to load status:', e);
+    async function loadStats() {
+      const s = await fetchJSON('/api/status');
+      document.getElementById('s-acc').textContent = s.accounts;
+      document.getElementById('s-zones').textContent = s.zones;
+      document.getElementById('s-map').textContent = s.enabled;
+      document.getElementById('s-nginx').innerHTML = s.nginx.running ? '<span style="color:#4ade80">● Running</span>' : '<span style="color:#f87171">○ Stopped</span>';
+    }
+
+    async function loadAccounts() {
+      const accounts = await fetchJSON('/api/accounts');
+      const container = document.getElementById('accounts-list');
+      if (!accounts.length) {
+        container.innerHTML = '<div class="card"><p style="color:#737373;text-align:center;padding:40px">No accounts yet. Click "Add Account" to get started.</p></div>';
+        return;
       }
+      container.innerHTML = accounts.map(acc => `
+        <div class="account-card">
+          <div class="account-hdr">
+            <div>
+              <strong style="color:#fff;font-size:16px">${acc.name}</strong>
+              <div style="color:#737373;font-size:13px">${acc.email} • API Key: ${acc.api_key_masked}</div>
+            </div>
+            <div class="actions">
+              <button class="btn btn-s" onclick="discoverZones('${acc.id}')">Discover Zones</button>
+              <button class="btn btn-s" onclick="showAddZone('${acc.id}')">+ Add Zone</button>
+              <button class="btn btn-d" onclick="removeAccount('${acc.id}')">Remove</button>
+            </div>
+          </div>
+          ${acc.zones.length ? acc.zones.map(z => `
+            <div class="zone-row">
+              <div>
+                <strong style="color:#f97316">${z.domain}</strong>
+                <div style="font-size:12px;color:#737373">Zone: ${z.zone_id} • Tunnel: ${z.tunnel_id || 'none'}</div>
+              </div>
+              <div class="actions">
+                <button class="btn btn-s" onclick="showAddMapping('${acc.id}','${z.zone_id}')">+ Mapping</button>
+                <button class="btn btn-d" onclick="removeZone('${acc.id}','${z.zone_id}')">Remove</button>
+              </div>
+            </div>
+          `).join('') : '<p style="color:#737373;padding:12px 0">No zones yet</p>'}
+        </div>
+      `).join('');
     }
 
     async function loadMappings() {
-      try {
-        const mappings = await fetchJSON('/api/mappings');
-        const tbody = document.getElementById('mappings-table');
-        if (mappings.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888">No mappings yet. Click "Add Mapping" to get started.</td></tr>';
-          return;
-        }
-        tbody.innerHTML = mappings.map(m => `
-          <tr>
-            <td><strong>${m.subdomain}</strong></td>
-            <td>${m.port}</td>
-            <td>${m.description || '-'}</td>
-            <td><span class="badge ${m.enabled !== false ? 'badge-active' : 'badge-inactive'}">${m.enabled !== false ? 'Active' : 'Disabled'}</span></td>
-            <td>
-              <button class="btn btn-secondary" style="padding:6px 12px; font-size:12px" onclick="toggleMapping('${m.subdomain}', ${m.enabled === false})">${m.enabled !== false ? 'Disable' : 'Enable'}</button>
-              <button class="btn btn-danger" style="padding:6px 12px; font-size:12px" onclick="deleteMapping('${m.subdomain}')">Delete</button>
-            </td>
-          </tr>
-        `).join('');
-      } catch (e) {
-        console.error('Failed to load mappings:', e);
-      }
+      const mappings = await fetchJSON('/api/mappings');
+      document.getElementById('all-mappings').innerHTML = mappings.length
+        ? mappings.map(m => `<tr>
+            <td><strong>${m.full_domain}</strong></td><td>${m.port}</td>
+            <td>${m.account_name}</td><td>${m.domain}</td>
+            <td><span class="badge ${m.enabled!==false?'badge-ok':'badge-err'}">${m.enabled!==false?'Active':'Disabled'}</span></td>
+          </tr>`).join('')
+        : '<tr><td colspan="5" style="text-align:center;color:#737373">No mappings yet</td></tr>';
     }
 
-    async function loadConfig() {
-      try {
-        const config = await fetchJSON('/api/config');
-        document.getElementById('cf-token').textContent = config.cloudflare?.api_token_masked || 'Not set';
-        document.getElementById('cf-zone').textContent = config.cloudflare?.zone_id || 'Not set';
-        document.getElementById('cf-tunnel').textContent = config.cloudflare?.tunnel_id || 'Not set';
-        document.getElementById('nginx-port').textContent = config.nginx?.listen_port || 6969;
-      } catch (e) {
-        console.error('Failed to load config:', e);
-      }
+    function showAddAccount() { showModal('add-account-modal'); }
+    function showAddZone(accId) { document.getElementById('zone-acc-id').value = accId; showModal('add-zone-modal'); }
+    function showAddMapping(accId, zoneId) {
+      document.getElementById('map-acc-id').value = accId;
+      document.getElementById('map-zone-id').value = zoneId;
+      showModal('add-mapping-modal');
     }
 
-    function showAddModal() {
-      document.getElementById('add-modal').style.display = 'block';
-      loadConfig().then(() => {
-        const config = document.getElementById('cf-token').textContent;
-        const domain = document.getElementById('domain-name').textContent;
-        document.getElementById('preview-domain').textContent = domain !== '-' ? `example.${domain}` : 'example.com';
-      });
+    async function addAccount(e) {
+      e.preventDefault();
+      await fetchJSON('/api/accounts', { method:'POST', body:JSON.stringify({
+        name: document.getElementById('acc-name').value,
+        email: document.getElementById('acc-email').value,
+        api_key: document.getElementById('acc-key').value
+      })});
+      closeModal('add-account-modal');
+      loadAccounts(); loadStats();
     }
 
-    function closeAddModal() {
-      document.getElementById('add-modal').style.display = 'none';
+    async function removeAccount(id) {
+      if (!confirm('Remove this account?')) return;
+      await fetchJSON(`/api/accounts/${id}`, { method:'DELETE' });
+      loadAccounts(); loadStats();
     }
 
-    function showConfigModal() {
-      document.getElementById('config-modal').style.display = 'block';
+    async function addZone(e) {
+      e.preventDefault();
+      await fetchJSON(`/api/accounts/${document.getElementById('zone-acc-id').value}/zones`, { method:'POST', body:JSON.stringify({
+        zone_id: document.getElementById('zone-id').value,
+        domain: document.getElementById('zone-domain').value,
+        tunnel_id: document.getElementById('zone-tunnel').value,
+        tunnel_credentials: document.getElementById('zone-creds').value
+      })});
+      closeModal('add-zone-modal');
+      loadAccounts(); loadStats();
     }
 
-    function closeConfigModal() {
-      document.getElementById('config-modal').style.display = 'none';
+    async function removeZone(accId, zoneId) {
+      if (!confirm('Remove this zone?')) return;
+      await fetchJSON(`/api/accounts/${accId}/zones/${zoneId}`, { method:'DELETE' });
+      loadAccounts(); loadStats();
     }
 
     async function addMapping(e) {
       e.preventDefault();
-      const subdomain = document.getElementById('input-subdomain').value;
-      const port = parseInt(document.getElementById('input-port').value);
-      const description = document.getElementById('input-description').value;
-
-      await fetchJSON('/api/mappings', {
-        method: 'POST',
-        body: JSON.stringify({ subdomain, port, description })
-      });
-
-      closeAddModal();
-      loadMappings();
-      loadStatus();
+      await fetchJSON('/api/mappings', { method:'POST', body:JSON.stringify({
+        account_id: document.getElementById('map-acc-id').value,
+        zone_id: document.getElementById('map-zone-id').value,
+        subdomain: document.getElementById('map-sub').value,
+        port: parseInt(document.getElementById('map-port').value),
+        description: document.getElementById('map-desc').value
+      })});
+      closeModal('add-mapping-modal');
+      loadAccounts(); loadMappings(); loadStats();
     }
 
-    async function deleteMapping(subdomain) {
-      if (!confirm(`Delete mapping for ${subdomain}?`)) return;
-      await fetchJSON(`/api/mappings/${subdomain}`, { method: 'DELETE' });
-      loadMappings();
-      loadStatus();
+    async function discoverZones(accId) {
+      const zones = await fetchJSON(`/api/accounts/${accId}/discover`);
+      if (zones.length) {
+        alert('Found zones:\n' + zones.map(z => `${z.domain} (${z.zone_id})`).join('\n'));
+      } else {
+        alert('No zones found or API error');
+      }
     }
 
-    async function toggleMapping(subdomain, enable) {
-      await fetchJSON(`/api/mappings/${subdomain}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ enabled: enable })
-      });
-      loadMappings();
-      loadStatus();
+    async function generateAndDeploy() {
+      if (!confirm('Generate nginx configs and deploy all DNS records?')) return;
+      await fetchJSON('/api/generate', { method:'POST' });
+      const result = await fetchJSON('/api/deploy', { method:'POST' });
+      alert(result.success ? 'Deployed!' : 'Error: ' + result.error);
+      loadStats();
     }
 
-    async function saveConfig(e) {
-      e.preventDefault();
-      const config = {
-        cloudflare: {
-          api_token: document.getElementById('config-token').value || undefined,
-          zone_id: document.getElementById('config-zone').value || undefined,
-          tunnel_id: document.getElementById('config-tunnel').value || undefined,
-          domain: document.getElementById('config-domain').value || undefined
-        },
-        nginx: {
-          listen_port: parseInt(document.getElementById('config-nginx-port').value) || undefined
-        }
-      };
-
-      await fetchJSON('/api/config', {
-        method: 'PUT',
-        body: JSON.stringify(config)
-      });
-
-      closeConfigModal();
-      loadConfig();
-    }
-
-    async function fullDeploy() {
-      if (!confirm('Deploy all mappings? This will generate nginx configs, tunnel configs, and create DNS records.')) return;
-      const result = await fetchJSON('/api/full-deploy', { method: 'POST' });
-      alert(result.success ? 'Deployed successfully!' : `Error: ${result.error}`);
-      loadStatus();
-    }
-
-    document.getElementById('input-subdomain').addEventListener('input', function() {
-      const domain = document.getElementById('domain-name').textContent;
-      const subdomain = this.value;
-      document.getElementById('preview-domain').textContent = domain !== '-'
-        ? `${subdomain}.${domain}`
-        : `${subdomain}.example.com`;
-    });
-
-    loadStatus();
-    loadMappings();
-    loadConfig();
-
-    setInterval(loadStatus, 10000);
+    loadStats(); loadAccounts(); loadMappings();
+    setInterval(loadStats, 10000);
   </script>
 </body>
 </html>

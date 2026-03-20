@@ -3,141 +3,111 @@ const { loadConfig } = require('./config');
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 
-function getClient() {
+function getClientForAccount(accountId) {
   const config = loadConfig();
-  if (!config.cloudflare.api_token) {
-    throw new Error('Cloudflare API token not configured. Run: cloudflare-router init');
+  const account = config.accounts.find(a => a.id === accountId);
+  if (!account) throw new Error(`Account not found: ${accountId}`);
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (account.api_token) {
+    headers['Authorization'] = `Bearer ${account.api_token}`;
+  } else if (account.email && account.api_key) {
+    headers['X-Auth-Email'] = account.email;
+    headers['X-Auth-Key'] = account.api_key;
+  } else {
+    throw new Error(`No credentials for account: ${account.name}`);
   }
-  return axios.create({
-    baseURL: CF_API_BASE,
-    headers: {
-      'Authorization': `Bearer ${config.cloudflare.api_token}`,
-      'Content-Type': 'application/json'
-    }
-  });
+  return axios.create({ baseURL: CF_API_BASE, headers });
 }
 
-async function listDNSRecords() {
-  const config = loadConfig();
-  const client = getClient();
-  const response = await client.get(`/zones/${config.cloudflare.zone_id}/dns_records`);
+function getClientForZone(accountId, zoneId) {
+  return getClientForAccount(accountId);
+}
+
+async function listDNSRecords(accountId, zoneId) {
+  const client = getClientForAccount(accountId);
+  const response = await client.get(`/zones/${zoneId}/dns_records`);
   return response.data.result;
 }
 
-async function createDNSRecord(subdomain, type = 'CNAME', content = null) {
-  const config = loadConfig();
-  const client = getClient();
-  const name = subdomain ? `${subdomain}.${config.cloudflare.domain}` : config.cloudflare.domain;
-  const target = content || `${config.cloudflare.tunnel_id}.cfargotunnel.com`;
+async function createDNSRecord(accountId, zoneId, subdomain, domain, tunnelId, type = 'CNAME', content = null) {
+  const client = getClientForAccount(accountId);
+  const name = subdomain ? `${subdomain}.${domain}` : domain;
+  const target = content || `${tunnelId}.cfargotunnel.com`;
 
-  const response = await client.post(`/zones/${config.cloudflare.zone_id}/dns_records`, {
-    type,
-    name,
-    content: target,
-    ttl: 1,
-    proxied: true
+  const response = await client.post(`/zones/${zoneId}/dns_records`, {
+    type, name, content: target, ttl: 1, proxied: true
   });
   return response.data.result;
 }
 
-async function deleteDNSRecord(recordId) {
-  const config = loadConfig();
-  const client = getClient();
-  const response = await client.delete(`/zones/${config.cloudflare.zone_id}/dns_records/${recordId}`);
+async function deleteDNSRecord(accountId, zoneId, recordId) {
+  const client = getClientForAccount(accountId);
+  const response = await client.delete(`/zones/${zoneId}/dns_records/${recordId}`);
   return response.data.result;
 }
 
-async function updateDNSRecord(recordId, subdomain, type = 'CNAME', content = null) {
-  const config = loadConfig();
-  const client = getClient();
-  const name = subdomain ? `${subdomain}.${config.cloudflare.domain}` : config.cloudflare.domain;
-  const target = content || `${config.cloudflare.tunnel_id}.cfargotunnel.com`;
-
-  const response = await client.put(`/zones/${config.cloudflare.zone_id}/dns_records/${recordId}`, {
-    type,
-    name,
-    content: target,
-    ttl: 1,
-    proxied: true
-  });
+async function getZoneInfo(accountId, zoneId) {
+  const client = getClientForAccount(accountId);
+  const response = await client.get(`/zones/${zoneId}`);
   return response.data.result;
 }
 
-async function getZoneInfo() {
-  const config = loadConfig();
-  const client = getClient();
-  const response = await client.get(`/zones/${config.cloudflare.zone_id}`);
+async function listZonesForAccount(accountId) {
+  const client = getClientForAccount(accountId);
+  const response = await client.get('/zones');
   return response.data.result;
 }
 
-async function getTunnelInfo() {
-  const config = loadConfig();
-  const client = getClient();
-  const response = await client.get(`/accounts/${config.cloudflare.account_id}/cfd_tunnel/${config.cloudflare.tunnel_id}`);
-  return response.data.result;
-}
-
-async function listTunnels() {
-  const config = loadConfig();
-  const client = getClient();
-  const response = await client.get(`/accounts/${config.cloudflare.account_id}/cfd_tunnel`);
-  return response.data.result;
-}
-
-async function verifyToken() {
+async function verifyAccount(accountId) {
   try {
-    const client = getClient();
-    const response = await client.get('/user/tokens/verify');
-    return { valid: true, ...response.data.result };
+    const client = getClientForAccount(accountId);
+    const response = await client.get('/zones?per_page=1');
+    return { valid: true, zones_count: response.data.result_info?.total_count || 0 };
   } catch (error) {
     return { valid: false, error: error.message };
   }
 }
 
-async function deployAllMappings() {
-  const config = loadConfig();
-  const { mappings } = require('./config').loadMappings();
-  const results = [];
+async function discoverZones(accountId) {
+  try {
+    const zones = await listZonesForAccount(accountId);
+    return zones.map(z => ({
+      zone_id: z.id,
+      domain: z.name,
+      status: z.status,
+      plan: z.plan?.name || 'Free'
+    }));
+  } catch (error) {
+    return [];
+  }
+}
 
+async function deployMappingsForZone(accountId, zoneId, domain, tunnelId, mappings) {
+  const results = [];
   for (const mapping of mappings.filter(m => m.enabled !== false)) {
     try {
-      const records = await listDNSRecords();
-      const existing = records.find(r => r.name === `${mapping.subdomain}.${config.cloudflare.domain}`);
+      const records = await listDNSRecords(accountId, zoneId);
+      const name = mapping.subdomain ? `${mapping.subdomain}.${domain}` : domain;
+      const existing = records.find(r => r.name === name);
 
       if (existing) {
-        results.push({
-          subdomain: mapping.subdomain,
-          status: 'exists',
-          record_id: existing.id
-        });
+        results.push({ subdomain: mapping.subdomain, status: 'exists', record_id: existing.id });
       } else {
-        const record = await createDNSRecord(mapping.subdomain);
-        results.push({
-          subdomain: mapping.subdomain,
-          status: 'created',
-          record_id: record.id
-        });
+        const record = await createDNSRecord(accountId, zoneId, mapping.subdomain, domain, tunnelId);
+        results.push({ subdomain: mapping.subdomain, status: 'created', record_id: record.id });
       }
     } catch (error) {
-      results.push({
-        subdomain: mapping.subdomain,
-        status: 'error',
-        error: error.message
-      });
+      results.push({ subdomain: mapping.subdomain, status: 'error', error: error.message });
     }
   }
-
   return results;
 }
 
 module.exports = {
-  listDNSRecords,
-  createDNSRecord,
-  deleteDNSRecord,
-  updateDNSRecord,
-  getZoneInfo,
-  getTunnelInfo,
-  listTunnels,
-  verifyToken,
-  deployAllMappings
+  getClientForAccount, getClientForZone,
+  listDNSRecords, createDNSRecord, deleteDNSRecord,
+  getZoneInfo, listZonesForAccount,
+  verifyAccount, discoverZones,
+  deployMappingsForZone
 };

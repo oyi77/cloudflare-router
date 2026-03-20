@@ -2,333 +2,152 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const path = require('path');
-const { loadConfig, saveConfig, loadMappings, addMapping, removeMapping, toggleMapping } = require('./config');
-const { generateAllNginxConfigs, getNginxStatus, reloadNginx } = require('./nginx');
-const { generateTunnelConfig, getTunnelStatus } = require('./tunnel');
-const { verifyToken, listDNSRecords, createDNSRecord, deleteDNSRecord, deployAllMappings } = require('./cloudflare');
+const { loadConfig, addAccount, removeAccount, addZoneToAccount, removeZoneFromAccount, addMapping, removeMapping, toggleMapping, getAllMappings, getConfigDir } = require('./config');
+const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
+const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords } = require('./cloudflare');
 
 const app = express();
 app.use(cors());
-app.use(morgan('combined'));
 app.use(express.json());
 
-const swaggerDoc = {
-  openapi: '3.0.0',
-  info: {
-    title: 'Cloudflare Router API',
-    version: '1.0.0',
-    description: 'Manage Cloudflare Tunnels, nginx reverse proxies, and DNS records from one place.'
-  },
-  paths: {
-    '/api/config': {
-      get: {
-        summary: 'Get current config',
-        responses: {
-          200: { description: 'Config object' }
-        }
-      },
-      put: {
-        summary: 'Update config',
-        requestBody: {
-          content: {
-            'application/json': {
-              schema: { type: 'object' }
-            }
-          }
-        },
-        responses: {
-          200: { description: 'Updated config' }
-        }
-      }
-    },
-    '/api/mappings': {
-      get: {
-        summary: 'List all mappings',
-        responses: {
-          200: { description: 'Array of mappings' }
-        }
-      },
-      post: {
-        summary: 'Add or update mapping',
-        requestBody: {
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  subdomain: { type: 'string' },
-                  port: { type: 'number' },
-                  description: { type: 'string' }
-                },
-                required: ['subdomain', 'port']
-              }
-            }
-          }
-        },
-        responses: {
-          200: { description: 'Updated mappings list' }
-        }
-      }
-    },
-    '/api/mappings/{subdomain}': {
-      delete: {
-        summary: 'Remove mapping',
-        parameters: [
-          { name: 'subdomain', in: 'path', required: true, schema: { type: 'string' } }
-        ],
-        responses: {
-          200: { description: 'Updated mappings list' }
-        }
-      },
-      patch: {
-        summary: 'Toggle mapping enabled/disabled',
-        parameters: [
-          { name: 'subdomain', in: 'path', required: true, schema: { type: 'string' } }
-        ],
-        requestBody: {
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: { enabled: { type: 'boolean' } }
-              }
-            }
-          }
-        },
-        responses: {
-          200: { description: 'Updated mappings list' }
-        }
-      }
-    },
-    '/api/generate/nginx': {
-      post: {
-        summary: 'Generate nginx configs',
-        responses: {
-          200: { description: 'Generation result' }
-        }
-      }
-    },
-    '/api/generate/tunnel': {
-      post: {
-        summary: 'Generate tunnel config',
-        responses: {
-          200: { description: 'Generation result' }
-        }
-      }
-    },
-    '/api/deploy': {
-      post: {
-        summary: 'Deploy all DNS records to Cloudflare',
-        responses: {
-          200: { description: 'Deployment results' }
-        }
-      }
-    },
-    '/api/status': {
-      get: {
-        summary: 'Get system status',
-        responses: {
-          200: { description: 'Status object with nginx, tunnel, and DNS info' }
-        }
-      }
-    },
-    '/api/dns': {
-      get: {
-        summary: 'List Cloudflare DNS records',
-        responses: {
-          200: { description: 'Array of DNS records' }
-        }
-      }
-    },
-    '/api/verify': {
-      get: {
-        summary: 'Verify Cloudflare API token',
-        responses: {
-          200: { description: 'Token verification result' }
-        }
-      }
-    },
-    '/api/full-deploy': {
-      post: {
-        summary: 'Full deploy: generate nginx + tunnel + DNS records',
-        responses: {
-          200: { description: 'Full deployment result' }
-        }
-      }
-    }
-  }
-};
-
-app.get('/api/docs/swagger.json', (req, res) => {
-  res.json(swaggerDoc);
-});
-
-app.get('/api/config', (req, res) => {
+app.get('/api/accounts', (req, res) => {
   try {
     const config = loadConfig();
-    const safeConfig = { ...config };
-    if (safeConfig.cloudflare) {
-      safeConfig.cloudflare = { ...safeConfig.cloudflare };
-      if (safeConfig.cloudflare.api_token) {
-        safeConfig.cloudflare.api_token_masked = safeConfig.cloudflare.api_token.substring(0, 8) + '...';
-        delete safeConfig.cloudflare.api_token;
-      }
-    }
-    res.json(safeConfig);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    const safe = (config.accounts || []).map(a => ({
+      id: a.id, name: a.name, email: a.email,
+      api_key_masked: a.api_key ? '...' + a.api_key.slice(-4) : (a.api_token ? '...' + a.api_token.slice(-4) : 'none'),
+      zones: (a.zones || []).map(z => ({ zone_id: z.zone_id, domain: z.domain, tunnel_id: z.tunnel_id }))
+    }));
+    res.json(safe);
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.put('/api/config', (req, res) => {
+app.post('/api/accounts', (req, res) => {
   try {
-    const currentConfig = loadConfig();
-    const newConfig = { ...currentConfig, ...req.body };
-    if (req.body.cloudflare) {
-      newConfig.cloudflare = { ...currentConfig.cloudflare, ...req.body.cloudflare };
-    }
-    saveConfig(newConfig);
-    res.json({ success: true, message: 'Config updated' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    const { name, email, api_key, api_token } = req.body;
+    const accounts = addAccount(name, email, api_key || api_token);
+    res.json({ success: true, accounts });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.delete('/api/accounts/:id', (req, res) => {
+  try {
+    removeAccount(req.params.id);
+    res.json({ success: true });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.get('/api/accounts/:id/verify', async (req, res) => {
+  try {
+    const result = await verifyAccount(req.params.id);
+    res.json(result);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.get('/api/accounts/:id/discover', async (req, res) => {
+  try {
+    const zones = await discoverZones(req.params.id);
+    res.json(zones);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/accounts/:id/zones', (req, res) => {
+  try {
+    const { zone_id, domain, tunnel_id, tunnel_credentials } = req.body;
+    const zones = addZoneToAccount(req.params.id, zone_id, domain, tunnel_id, tunnel_credentials);
+    res.json({ success: true, zones });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.delete('/api/accounts/:id/zones/:zoneId', (req, res) => {
+  try {
+    removeZoneFromAccount(req.params.id, req.params.zoneId);
+    res.json({ success: true });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.get('/api/accounts/:id/zones/:zoneId/dns', async (req, res) => {
+  try {
+    const records = await listDNSRecords(req.params.id, req.params.zoneId);
+    res.json(records);
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 app.get('/api/mappings', (req, res) => {
-  try {
-    const { mappings } = loadMappings();
-    res.json(mappings);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  try { res.json(getAllMappings()); }
+  catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 app.post('/api/mappings', (req, res) => {
   try {
-    const { subdomain, port, description, protocol } = req.body;
-    if (!subdomain || !port) {
-      return res.status(400).json({ error: 'subdomain and port are required' });
+    const { account_id, zone_id, subdomain, port, description } = req.body;
+    if (!account_id || !zone_id || !subdomain || !port) {
+      return res.status(400).json({ error: 'account_id, zone_id, subdomain, port required' });
     }
-    const mappings = addMapping(subdomain, port, description || '', protocol || 'http');
+    const mappings = addMapping(account_id, zone_id, subdomain, port, description || '');
     res.json({ success: true, mappings });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.delete('/api/mappings/:subdomain', (req, res) => {
+app.delete('/api/mappings/:account/:zone/:subdomain', (req, res) => {
   try {
-    const mappings = removeMapping(req.params.subdomain);
-    res.json({ success: true, mappings });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    removeMapping(req.params.account, req.params.zone, req.params.subdomain);
+    res.json({ success: true });
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.patch('/api/mappings/:subdomain', (req, res) => {
+app.patch('/api/mappings/:account/:zone/:subdomain', (req, res) => {
   try {
-    const { enabled } = req.body;
-    const mappings = toggleMapping(req.params.subdomain, enabled);
-    res.json({ success: true, mappings });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    toggleMapping(req.params.account, req.params.zone, req.params.subdomain, req.body.enabled);
+    res.json({ success: true });
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.post('/api/generate/nginx', (req, res) => {
+app.post('/api/generate', (req, res) => {
   try {
     const result = generateAllNginxConfigs();
     res.json({ success: true, ...result });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/generate/tunnel', (req, res) => {
-  try {
-    const result = generateTunnelConfig();
-    res.json({ success: true, ...result });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 app.post('/api/deploy', async (req, res) => {
   try {
-    const results = await deployAllMappings();
-    res.json({ success: true, results });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    const config = loadConfig();
+    const allResults = [];
+    for (const account of config.accounts || []) {
+      for (const zone of account.zones || []) {
+        const { loadMappings } = require('./config');
+        const { mappings } = loadMappings(account.id, zone.zone_id);
+        const results = await deployMappingsForZone(account.id, zone.zone_id, zone.domain, zone.tunnel_id, mappings);
+        allResults.push({ account: account.name, zone: zone.domain, results });
+      }
+    }
+    res.json({ success: true, results: allResults });
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 app.get('/api/status', (req, res) => {
   try {
     const config = loadConfig();
-    const { mappings } = loadMappings();
-    const nginxStatus = getNginxStatus();
-    const tunnelStatus = getTunnelStatus();
-
+    const mappings = getAllMappings();
     res.json({
-      nginx: nginxStatus,
-      tunnel: tunnelStatus,
-      mappings: {
-        total: mappings.length,
-        enabled: mappings.filter(m => m.enabled !== false).length
-      },
-      config: {
-        domain: config.cloudflare?.domain || 'not configured',
-        tunnel_id: config.cloudflare?.tunnel_id || 'not configured'
-      }
+      nginx: getNginxStatus(),
+      accounts: config.accounts?.length || 0,
+      zones: config.accounts?.reduce((s, a) => s + (a.zones?.length || 0), 0) || 0,
+      mappings: mappings.length,
+      enabled: mappings.filter(m => m.enabled !== false).length
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/dns', async (req, res) => {
-  try {
-    const records = await listDNSRecords();
-    res.json(records);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/verify', async (req, res) => {
-  try {
-    const result = await verifyToken();
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/full-deploy', async (req, res) => {
-  try {
-    const nginxResult = generateAllNginxConfigs();
-    const tunnelResult = generateTunnelConfig();
-    const dnsResults = await deployAllMappings();
-
-    res.json({
-      success: true,
-      nginx: nginxResult,
-      tunnel: tunnelResult,
-      dns: dnsResults
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 app.use('/', express.static(path.join(__dirname, 'dashboard')));
 
 function startServer(port = 7070) {
   return new Promise((resolve) => {
-    const server = app.listen(port, '0.0.0.0', () => {
-      console.log(`Cloudflare Router Dashboard: http://localhost:${port}`);
-      console.log(`API Docs: http://localhost:${port}/api/docs`);
-      resolve(server);
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`Dashboard: http://localhost:${port}`);
+      console.log(`API: http://localhost:${port}/api`);
+      resolve();
     });
   });
 }
