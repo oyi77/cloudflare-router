@@ -48,6 +48,24 @@
     .login-box h2 { margin-bottom:24px; color:#fff; }
     .login-box .input { margin-bottom:16px; }
     .hidden { display:none !important; }
+    .account-tree { margin-bottom:16px; }
+    .account-item { background:#171717; border:1px solid #262626; border-radius:12px; margin-bottom:8px; overflow:hidden; }
+    .account-header { display:flex; align-items:center; padding:16px 20px; cursor:pointer; user-select:none; }
+    .account-header:hover { background:#1f1f1f; }
+    .account-chevron { width:20px; height:20px; margin-right:12px; transition:transform .2s; color:#737373; }
+    .account-chevron.open { transform:rotate(90deg); }
+    .account-info { flex:1; }
+    .account-name { font-size:16px; font-weight:600; color:#fff; }
+    .account-meta { font-size:12px; color:#737373; margin-top:2px; }
+    .account-actions { display:flex; gap:6px; }
+    .zone-list { border-top:1px solid #262626; padding:0 20px 12px 48px; }
+    .zone-item { display:flex; align-items:center; padding:10px 0; border-bottom:1px solid #1f1f1f; }
+    .zone-item:last-child { border-bottom:none; }
+    .zone-dot { width:8px; height:8px; border-radius:50%; background:#4ade80; margin-right:12px; }
+    .zone-info { flex:1; }
+    .zone-domain { font-size:14px; color:#f97316; font-weight:500; }
+    .zone-meta { font-size:11px; color:#737373; }
+    .zone-actions { display:flex; gap:6px; }
   </style>
 </head>
 <body>
@@ -81,6 +99,7 @@
       </div>
       <div class="tabs">
         <div class="tab active" onclick="showTab('accounts')">Accounts</div>
+        <div class="tab" onclick="showTab('domains')">Domains</div>
         <div class="tab" onclick="showTab('mappings')">Mappings</div>
         <div class="tab" onclick="showTab('dns')">DNS Records</div>
         <div class="tab" onclick="showTab('tunnels')">Tunnels</div>
@@ -94,6 +113,16 @@
           </div>
         </div>
         <div id="accounts-list"></div>
+      </div>
+      <div id="tab-domains" class="hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h2 style="font-size:18px;color:#fff">All Domains</h2>
+          <button class="btn btn-s" onclick="loadDomains()">Refresh</button>
+        </div>
+        <div class="card">
+          <table><thead><tr><th>Domain</th><th>Zone ID</th><th>Tunnel ID</th><th>Mappings</th><th>Account</th><th>Actions</th></tr></thead>
+          <tbody id="domains-list"><tr><td colspan="6" style="text-align:center;color:#737373">Loading...</td></tr></tbody></table>
+        </div>
       </div>
       <div id="tab-mappings" class="hidden">
         <div class="card">
@@ -237,9 +266,10 @@
     function showTab(tab) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       event.target.classList.add('active');
-      ['accounts','mappings','dns','tunnels'].forEach(t => {
+      ['accounts','domains','mappings','dns','tunnels'].forEach(t => {
         document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab);
       });
+      if (tab === 'domains') loadDomains();
       if (tab === 'dns') loadDNS();
       if (tab === 'tunnels') loadTunnels();
     }
@@ -261,33 +291,70 @@
         container.innerHTML = '<div class="card"><p style="color:#737373;text-align:center;padding:40px">No accounts yet</p></div>';
         return;
       }
-      container.innerHTML = accounts.map(acc => `
-        <div class="account-card">
-          <div class="account-hdr">
-            <div>
-              <strong style="color:#fff;font-size:16px">${acc.name}</strong>
-              <div style="color:#737373;font-size:13px">${acc.email} • API Key: ${acc.api_key_masked}</div>
+      container.innerHTML = '<div class="account-tree">' + accounts.map((acc, idx) => `
+        <div class="account-item">
+          <div class="account-header" onclick="toggleAccount(${idx})">
+            <svg class="account-chevron" id="chevron-${idx}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/></svg>
+            <div class="account-info">
+              <div class="account-name">${acc.name}</div>
+              <div class="account-meta">${acc.email} • ${acc.zones.length} zones • API: ${acc.api_key_masked}</div>
             </div>
-            <div class="actions">
+            <div class="account-actions" onclick="event.stopPropagation()">
               <button class="btn btn-s" onclick="discoverZones('${acc.id}')">Discover</button>
               <button class="btn btn-s" onclick="showAddZone('${acc.id}')">+ Zone</button>
-              <button class="btn btn-d" onclick="removeAccount('${acc.id}')">Remove</button>
+              <button class="btn btn-d" onclick="removeAccount('${acc.id}')">×</button>
             </div>
           </div>
-          ${acc.zones.length ? acc.zones.map(z => `
-            <div class="zone-row">
-              <div>
-                <strong style="color:#f97316">${z.domain}</strong>
-                <div style="font-size:12px;color:#737373">Zone: ${z.zone_id} • Tunnel: ${z.tunnel_id || 'none'}</div>
+          <div class="zone-list" id="zones-${idx}" style="display:none">
+            ${acc.zones.length ? acc.zones.map(z => `
+              <div class="zone-item">
+                <div class="zone-dot"></div>
+                <div class="zone-info">
+                  <div class="zone-domain">${z.domain}</div>
+                  <div class="zone-meta">Zone: ${z.zone_id}${z.tunnel_id ? ' • Tunnel: ' + z.tunnel_id : ''}</div>
+                </div>
+                <div class="zone-actions">
+                  <button class="btn btn-s" onclick="showAddMapping('${acc.id}','${z.zone_id}')">+ Mapping</button>
+                  <button class="btn btn-d" onclick="removeZone('${acc.id}','${z.zone_id}')">×</button>
+                </div>
               </div>
-              <div class="actions">
-                <button class="btn btn-s" onclick="showAddMapping('${acc.id}','${z.zone_id}')">+ Mapping</button>
-                <button class="btn btn-d" onclick="removeZone('${acc.id}','${z.zone_id}')">Remove</button>
-              </div>
-            </div>
-          `).join('') : '<p style="color:#737373;padding:12px 0">No zones yet</p>'}
+            `).join('') : '<p style="color:#737373;padding:8px 0">No zones. Click Discover to find zones.</p>'}
+          </div>
         </div>
-      `).join('');
+      `).join('') + '</div>';
+    }
+
+    function toggleAccount(idx) {
+      const zones = document.getElementById('zones-' + idx);
+      const chevron = document.getElementById('chevron-' + idx);
+      const isOpen = zones.style.display !== 'none';
+      zones.style.display = isOpen ? 'none' : 'block';
+      chevron.classList.toggle('open', !isOpen);
+    }
+
+    async function loadDomains() {
+      const accounts = await fetchJSON('/api/accounts');
+      if (!accounts) return;
+      const allDomains = [];
+      for (const acc of accounts) {
+        for (const z of acc.zones) {
+          const mappings = await fetchJSON('/api/mappings');
+          const zoneMapCount = mappings ? mappings.filter(m => m.account_id === acc.id && m.zone_id === z.zone_id).length : 0;
+          allDomains.push({ ...z, account_name: acc.name, account_id: acc.id, mapping_count: zoneMapCount });
+        }
+      }
+      document.getElementById('domains-list').innerHTML = allDomains.length
+        ? allDomains.map(d => `<tr>
+            <td><strong style="color:#f97316">${d.domain}</strong></td>
+            <td style="font-family:monospace;font-size:12px;color:#737373">${d.zone_id}</td>
+            <td style="font-family:monospace;font-size:12px;color:#737373">${d.tunnel_id || '-'}</td>
+            <td><span class="badge badge-info">${d.mapping_count} mappings</span></td>
+            <td>${d.account_name}</td>
+            <td>
+              <button class="btn btn-s" onclick="showAddMapping('${d.account_id}','${d.zone_id}')">+ Mapping</button>
+            </td>
+          </tr>`).join('')
+        : '<tr><td colspan="6" style="text-align:center;color:#737373">No domains configured</td></tr>';
     }
 
     async function loadMappings() {
