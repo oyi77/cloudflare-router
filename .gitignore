@@ -2,3 +2,7 @@ node_modules/
 *.log
 .env
 .DS_Store
+config.yml
+mappings/
+nginx/
+tunnel/
