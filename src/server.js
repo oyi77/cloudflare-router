@@ -331,7 +331,7 @@ app.post('/api/health-check/add', (req, res) => {
   const { url, name, interval } = req.body;
   const id = Date.now().toString();
   healthChecks.set(id, { id, url, name: name || url, interval: interval || 30000, status: 'pending', lastCheck: null });
-  runHealthCheck(id);
+  executeHealthCheck(id);
   res.json({ success: true, id });
 });
 
@@ -344,7 +344,7 @@ app.get('/api/health-checks', (req, res) => {
   res.json([...healthChecks.values()]);
 });
 
-function runHealthCheck(id) {
+function executeHealthCheck(id) {
   const check = healthChecks.get(id);
   if (!check) return;
   const startTime = Date.now();
@@ -357,7 +357,7 @@ function runHealthCheck(id) {
       sendWebhook(`Health check failed: ${check.name} (${check.url})`);
     }
   });
-  setTimeout(() => runHealthCheck(id), check.interval);
+  setTimeout(() => executeHealthCheck(id), check.interval);
 }
 
 app.get('/api/ssl/:domain', async (req, res) => {

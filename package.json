@@ -1,35 +1,63 @@
 {
   "name": "cloudflare-router",
-  "version": "1.0.0",
-  "description": "Cloudflare Tunnel + Nginx Reverse Proxy Manager. Manage subdomains, tunnels, and DNS from one place.",
+  "version": "2.0.0",
+  "description": "Cloudflare Tunnel + Nginx Reverse Proxy Manager with multi-account support. Manage subdomains, DNS, tunnels, and monitoring from one dashboard.",
   "main": "src/server.js",
   "bin": {
-    "cloudflare-router": "src/cli.js"
+    "cloudflare-router": "src/cli.js",
+    "cfr": "src/cli.js"
   },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "cli": "node src/cli.js"
+    "cli": "node src/cli.js",
+    "install-completions": "cp completions/cloudflare-router.bash /etc/bash_completion.d/ && cp completions/cloudflare-router.zsh /usr/share/zsh/site-functions/_cloudflare-router",
+    "postinstall": "echo 'Run npm run install-completions for shell autocompletion'"
   },
+  "files": [
+    "src/",
+    "completions/",
+    "Dockerfile",
+    "docker-compose.yml",
+    "README.md",
+    "LICENSE"
+  ],
   "keywords": [
     "cloudflare",
     "tunnel",
     "nginx",
     "reverse-proxy",
     "dns",
-    "subdomain"
+    "subdomain",
+    "multi-account",
+    "dashboard",
+    "proxy-manager",
+    "wildcard"
   ],
+  "author": "oyi77",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oyi77/cloudflare-router.git"
+  },
+  "homepage": "https://github.com/oyi77/cloudflare-router#readme",
+  "bugs": {
+    "url": "https://github.com/oyi77/cloudflare-router/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ],
   "dependencies": {
     "axios": "^1.6.0",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
     "cors": "^2.8.5",
-    "ejs": "^3.1.9",
     "express": "^4.18.2",
     "js-yaml": "^4.1.0",
-    "morgan": "^1.10.0",
-    "swagger-ui-express": "^5.0.0",
     "ws": "^8.19.0"
   }
 }
