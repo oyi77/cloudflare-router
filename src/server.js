@@ -13,12 +13,14 @@ const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords, lis
 const { rateLimitMiddleware, addToWhitelist, addToBlacklist, removeFromWhitelist, removeFromBlacklist, getIPLists, getRateLimitStats } = require('./middleware');
 const { createBackup, restoreBackup, listBackups, runHealthCheck, getHealthHistory, startAutoBackup, getBackupConfig, saveBackupConfig } = require('./backup');
 const { getAvailableLanguages, translate, i18nMiddleware } = require('./i18n');
+const { requestLoggerMiddleware, getAccessLogs, getErrorLogs, clearLogs, getLogStats } = require('./logger');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(rateLimitMiddleware({ windowMs: 60000, max: 100 }));
 app.use(i18nMiddleware);
+app.use(requestLoggerMiddleware);
 
 function loadEnv() {
   const envPath = path.join(CONFIG_DIR, '.env');
@@ -240,6 +242,26 @@ app.get('/api/translations', (req, res) => {
   const { languages } = require('./i18n');
   const langData = languages[lang] || languages.en;
   res.json({ lang, translations: langData.translations });
+});
+
+// Logging endpoints
+app.get('/api/logs/access', (req, res) => {
+  const lines = parseInt(req.query.lines) || 100;
+  res.json(getAccessLogs(lines));
+});
+
+app.get('/api/logs/errors', (req, res) => {
+  const lines = parseInt(req.query.lines) || 100;
+  res.json(getErrorLogs(lines));
+});
+
+app.get('/api/logs/stats', (req, res) => {
+  res.json(getLogStats());
+});
+
+app.delete('/api/logs', (req, res) => {
+  clearLogs();
+  res.json({ success: true });
 });
 
 app.get('/api/ip/lists', (req, res) => {

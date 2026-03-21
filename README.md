@@ -6,6 +6,7 @@ One config file → auto-generate nginx + tunnel + DNS records.
 
 ## Features
 
+- **Multi-Account Support**: Manage multiple Cloudflare accounts from one dashboard
 - **One-Command Setup**: Initialize with your Cloudflare API token
 - **Subdomain Management**: Add/remove subdomains pointing to any local port
 - **Auto-Generate**: Nginx configs, tunnel ingress rules, DNS records
@@ -13,13 +14,48 @@ One config file → auto-generate nginx + tunnel + DNS records.
 - **REST API**: Full CRUD with Swagger docs
 - **MCP Server**: AI agent integration (OpenClaw, Claude, etc.)
 - **Multi-Domain**: Manage multiple domains from a single API token
+- **Multi-Language**: English, Russian, Chinese, Hindi, Indonesian
+- **Security**: Rate limiting, IP whitelist/blacklist, auth
+- **Monitoring**: Health checks, traffic stats, SSL expiry, port scanner
+- **Request Logging**: Detailed access/error logs with analytics
+- **Docker Support**: Ready-to-use Dockerfile and docker-compose
+- **PWA Support**: Installable as a web app
+
+## Installation
+
+### From GitHub Packages (Recommended)
+
+```bash
+# Add GitHub Packages registry
+echo "@oyi77:registry=https://npm.pkg.github.com" >> ~/.npmrc
+
+# Install
+npm install -g @oyi77/cloudflare-router
+```
+
+### From npm
+
+```bash
+npm install -g cloudflare-router
+```
+
+### Using npx
+
+```bash
+npx @oyi77/cloudflare-router dashboard
+```
+
+### Docker
+
+```bash
+git clone https://github.com/oyi77/cloudflare-router.git
+cd cloudflare-router
+docker-compose up -d
+```
 
 ## Quick Start
 
 ```bash
-# Install globally
-npm install -g cloudflare-router
-
 # Initialize
 cloudflare-router init \
   --token "your-cf-api-token" \
@@ -82,36 +118,52 @@ cloudflare-router dashboard
 ## CLI Commands
 
 ```
-cloudflare-router init       Initialize configuration
-cloudflare-router add        Add subdomain mapping
-cloudflare-router remove     Remove subdomain mapping
-cloudflare-router list       List all mappings
-cloudflare-router generate   Generate nginx + tunnel configs
-cloudflare-router deploy     Deploy DNS records to Cloudflare
-cloudflare-router status     Show system status
-cloudflare-router dns        List Cloudflare DNS records
-cloudflare-router dashboard  Start web dashboard
-cloudflare-router mcp        Start MCP server
+cloudflare-router init           Initialize configuration
+cloudflare-router account:add    Add Cloudflare account
+cloudflare-router account:list   List all accounts
+cloudflare-router add            Add subdomain mapping
+cloudflare-router remove         Remove subdomain mapping
+cloudflare-router list           List all mappings
+cloudflare-router generate       Generate nginx + tunnel configs
+cloudflare-router deploy         Deploy DNS records to Cloudflare
+cloudflare-router status         Show system status
+cloudflare-router dashboard      Start web dashboard
+
+# Short alias
+cfr dashboard
+```
+
+## Shell Auto-Completion
+
+```bash
+# Bash
+cp completions/cloudflare-router.bash /etc/bash_completion.d/
+
+# Zsh
+cp completions/cloudflare-router.zsh /usr/share/zsh/site-functions/_cloudflare-router
 ```
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/config` | Get config |
-| PUT | `/api/config` | Update config |
+| GET | `/api/accounts` | List accounts |
+| POST | `/api/accounts` | Add account |
+| DELETE | `/api/accounts/:id` | Remove account |
 | GET | `/api/mappings` | List mappings |
 | POST | `/api/mappings` | Add mapping |
-| DELETE | `/api/mappings/:subdomain` | Remove mapping |
-| PATCH | `/api/mappings/:subdomain` | Toggle mapping |
-| POST | `/api/generate/nginx` | Generate nginx configs |
-| POST | `/api/generate/tunnel` | Generate tunnel config |
-| POST | `/api/deploy` | Deploy DNS records |
-| POST | `/api/full-deploy` | Generate + deploy all |
-| GET | `/api/status` | Get status |
-| GET | `/api/dns` | List DNS records |
-| GET | `/api/verify` | Verify API token |
-| GET | `/api/docs/swagger.json` | Swagger spec |
+| GET | `/api/stats` | Traffic statistics |
+| GET | `/api/ssl/all` | SSL certificates |
+| GET | `/api/health-checks` | Health checks |
+| POST | `/api/health-check/add` | Add health check |
+| GET | `/api/logs/access` | Access logs |
+| GET | `/api/logs/errors` | Error logs |
+| GET | `/api/logs/stats` | Log statistics |
+| DELETE | `/api/logs` | Clear logs |
+| GET | `/api/languages` | Available languages |
+| GET | `/api/translations?lang=xx` | Get translations |
+| POST | `/api/config/export` | Export config |
+| POST | `/api/config/import` | Import config |
 
 ## MCP Tools (AI Agent Integration)
 
@@ -147,27 +199,50 @@ server:
   host: "0.0.0.0"
 ```
 
-## Multi-Domain Support
+## Multi-Account Support
 
-A single Cloudflare API token can manage multiple domains:
+Manage multiple Cloudflare accounts:
 
 ```yaml
-domains:
-  - domain: "example.com"
-    zone_id: "zone-id-1"
-    tunnel_id: "tunnel-id-1"
-    mappings:
-      - subdomain: "api"
-        port: 3002
-      - subdomain: "app"
-        port: 3000
+accounts:
+  - id: "personal"
+    name: "Personal"
+    email: "user@gmail.com"
+    api_key: "your-api-key"
+    zones:
+      - zone_id: "zone-id-1"
+        domain: "example.com"
+        tunnel_id: "tunnel-id-1"
 
-  - domain: "another-example.com"
-    zone_id: "zone-id-2"
-    tunnel_id: "tunnel-id-2"
-    mappings:
-      - subdomain: "www"
-        port: 8080
+  - id: "work"
+    name: "Work"
+    email: "user@company.com"
+    api_key: "work-api-key"
+    zones:
+      - zone_id: "zone-id-2"
+        domain: "company.com"
+        tunnel_id: "tunnel-id-2"
+```
+
+## Request Logging
+
+Access logs are stored in `~/.cloudflare-router/logs/`:
+
+- `access.log` - All requests (JSON format)
+- `error.log` - 4xx/5xx errors only
+
+View logs via API:
+```bash
+curl http://localhost:7070/api/logs/access -H "Authorization: Bearer 123456"
+curl http://localhost:7070/api/logs/stats -H "Authorization: Bearer 123456"
+```
+
+## Environment Variables
+
+```bash
+DASHBOARD_PASSWORD=123456        # Dashboard auth password
+AUTH_TOKEN=your-token            # API auth token
+WEBHOOK_URL=https://...          # Webhook for alerts
 ```
 
 ## License
