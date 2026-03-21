@@ -10,10 +10,15 @@ const tls = require('tls');
 const { loadConfig, saveConfig, addAccount, removeAccount, addZoneToAccount, removeZoneFromAccount, addMapping, removeMapping, toggleMapping, getAllMappings, CONFIG_DIR, MAPPINGS_DIR } = require('./config');
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
 const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords, listTunnelsForAccount } = require('./cloudflare');
+const { rateLimitMiddleware, addToWhitelist, addToBlacklist, removeFromWhitelist, removeFromBlacklist, getIPLists, getRateLimitStats } = require('./middleware');
+const { createBackup, restoreBackup, listBackups, runHealthCheck, getHealthHistory, startAutoBackup, getBackupConfig, saveBackupConfig } = require('./backup');
+const { getAvailableLanguages, translate, i18nMiddleware } = require('./i18n');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use(rateLimitMiddleware({ windowMs: 60000, max: 100 }));
+app.use(i18nMiddleware);
 
 function loadEnv() {
   const envPath = path.join(CONFIG_DIR, '.env');
@@ -220,6 +225,106 @@ app.get('/api/status', (req, res) => {
 
 app.get('/api/stats', (req, res) => {
   res.json(requestStats);
+});
+
+app.get('/api/languages', (req, res) => {
+  res.json(getAvailableLanguages());
+});
+
+app.get('/api/translate/:key', (req, res) => {
+  res.json({ key: req.params.key, value: translate(req.params.key, req.query.lang || 'en') });
+});
+
+app.get('/api/translations', (req, res) => {
+  const lang = req.query.lang || 'en';
+  const { languages } = require('./i18n');
+  const langData = languages[lang] || languages.en;
+  res.json({ lang, translations: langData.translations });
+});
+
+app.get('/api/ip/lists', (req, res) => {
+  res.json(getIPLists());
+});
+
+app.post('/api/ip/whitelist', (req, res) => {
+  const { ip } = req.body;
+  addToWhitelist(ip);
+  res.json({ success: true });
+});
+
+app.post('/api/ip/blacklist', (req, res) => {
+  const { ip } = req.body;
+  addToBlacklist(ip);
+  res.json({ success: true });
+});
+
+app.delete('/api/ip/whitelist/:ip', (req, res) => {
+  removeFromWhitelist(req.params.ip);
+  res.json({ success: true });
+});
+
+app.delete('/api/ip/blacklist/:ip', (req, res) => {
+  removeFromBlacklist(req.params.ip);
+  res.json({ success: true });
+});
+
+app.get('/api/rate-limit/stats', (req, res) => {
+  res.json(getRateLimitStats());
+});
+
+app.post('/api/backup/create', (req, res) => {
+  try {
+    const backup = createBackup();
+    res.json({ success: true, ...backup });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/backup/list', (req, res) => {
+  res.json(listBackups());
+});
+
+app.post('/api/backup/restore', (req, res) => {
+  try {
+    const { file } = req.body;
+    const backupDir = path.join(CONFIG_DIR, 'backups');
+    const result = restoreBackup(path.join(backupDir, file));
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/backup/config', (req, res) => {
+  res.json(getBackupConfig());
+});
+
+app.put('/api/backup/config', (req, res) => {
+  saveBackupConfig(req.body);
+  res.json({ success: true });
+});
+
+app.post('/api/health-check/run', (req, res) => {
+  const { urls } = req.body;
+  const results = runHealthCheck(urls || []);
+  res.json(results);
+});
+
+app.get('/api/health-check/history', (req, res) => {
+  res.json(getHealthHistory(parseInt(req.query.hours) || 24));
+});
+
+app.get('/api/nginx/configs', (req, res) => {
+  try {
+    const sitesDir = path.join(CONFIG_DIR, 'nginx', 'sites');
+    if (!fs.existsSync(sitesDir)) return res.json([]);
+    const configs = fs.readdirSync(sitesDir).filter(f => f.endsWith('.conf')).map(f => ({
+      file: f,
+      content: fs.readFileSync(path.join(sitesDir, f), 'utf8')
+    }));
+    res.json(configs);
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 app.post('/api/health-check/add', (req, res) => {

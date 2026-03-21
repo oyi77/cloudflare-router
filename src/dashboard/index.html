@@ -89,13 +89,14 @@
   <div id="dashboard-screen" class="hidden">
     <header>
       <div class="container">
-        <div><h1>☁️ Cloudflare Router</h1><p>Manage accounts, domains, DNS, tunnels & monitoring</p></div>
+        <div><h1>☁️ <span data-i18n="title">Cloudflare Router</span></h1><p data-i18n="subtitle">Manage accounts, domains, DNS, tunnels & monitoring</p></div>
         <div class="header-actions">
+          <select id="lang-selector" class="input" style="width:auto;padding:4px 8px" onchange="changeLanguage(this.value)"></select>
           <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌓</button>
-          <button class="btn btn-s" onclick="exportConfig()" title="Export config">📥</button>
-          <button class="btn btn-s" onclick="document.getElementById('import-file').click()" title="Import config">📤</button>
+          <button class="btn btn-s" onclick="exportConfig()" data-i18n="export">📥 Export</button>
+          <button class="btn btn-s" onclick="document.getElementById('import-file').click()" data-i18n="import">📤 Import</button>
           <input type="file" id="import-file" style="display:none" accept=".json" onchange="importConfig(event)">
-          <button class="btn btn-s" onclick="logout()">Logout</button>
+          <button class="btn btn-s" onclick="logout()" data-i18n="logout">Logout</button>
         </div>
       </div>
     </header>
@@ -109,16 +110,16 @@
         <div class="card"><h3>Uptime</h3><div class="stat" id="s-uptime" style="font-size:16px">-</div></div>
       </div>
       <div class="tabs" id="main-tabs">
-        <div class="tab active" data-tab="accounts">Accounts</div>
-        <div class="tab" data-tab="domains">Domains</div>
-        <div class="tab" data-tab="mappings">Mappings</div>
-        <div class="tab" data-tab="dns">DNS</div>
-        <div class="tab" data-tab="tunnels">Tunnels</div>
-        <div class="tab" data-tab="ssl">SSL</div>
-        <div class="tab" data-tab="health">Health</div>
-        <div class="tab" data-tab="traffic">Traffic</div>
-        <div class="tab" data-tab="ports">Ports</div>
-        <div class="tab" data-tab="nginx">Nginx</div>
+        <div class="tab active" data-tab="accounts" data-i18n="accounts">Accounts</div>
+        <div class="tab" data-tab="domains" data-i18n="domains">Domains</div>
+        <div class="tab" data-tab="mappings" data-i18n="mappings">Mappings</div>
+        <div class="tab" data-tab="dns" data-i18n="dns">DNS</div>
+        <div class="tab" data-tab="tunnels" data-i18n="tunnels">Tunnels</div>
+        <div class="tab" data-tab="ssl" data-i18n="ssl">SSL</div>
+        <div class="tab" data-tab="health" data-i18n="health">Health</div>
+        <div class="tab" data-tab="traffic" data-i18n="traffic">Traffic</div>
+        <div class="tab" data-tab="ports" data-i18n="ports">Ports</div>
+        <div class="tab" data-tab="nginx" data-i18n="nginx">Nginx</div>
       </div>
       <div id="tab-accounts">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -579,6 +580,52 @@
     }
 
     function loadAll() { loadStats(); loadAccounts(); loadMappings(); }
+
+    // i18n Language Support
+    let currentLang = localStorage.getItem('cf-lang') || 'en';
+    let translations = {};
+
+    async function loadLanguages() {
+      const langs = await fetchJSON('/api/languages');
+      if (!langs) return;
+      const selector = document.getElementById('lang-selector');
+      selector.innerHTML = langs.map(l => `<option value="${l.code}" ${l.code === currentLang ? 'selected' : ''}>${l.flag} ${l.name}</option>`).join('');
+    }
+
+    async function loadTranslations(lang) {
+      const res = await fetch(`${API}/api/translate/dashboard?lang=${lang}`);
+      const data = await res.json();
+      return data.value || {};
+    }
+
+    async function changeLanguage(lang) {
+      currentLang = lang;
+      localStorage.setItem('cf-lang', lang);
+      const res = await fetch(`${API}/api/translations?lang=${lang}`);
+      const data = await res.json();
+      translations = data.translations || {};
+      applyTranslations();
+    }
+
+    function applyTranslations() {
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (translations[key]) el.textContent = translations[key];
+      });
+    }
+
+    async function initI18n() {
+      await loadLanguages();
+      await changeLanguage(currentLang);
+    }
+
+    // Initialize i18n when dashboard loads
+    const origShowDashboard = showDashboard;
+    showDashboard = function() {
+      origShowDashboard();
+      initI18n();
+    };
+
     checkAuth();
   </script>
 </body>
