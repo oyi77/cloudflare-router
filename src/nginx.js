@@ -47,6 +47,15 @@ function generateAllNginxConfigs() {
     generated.push({ file: filepath, domain: mapping.full_domain, account: mapping.account_name });
   });
 
+  const existingFiles = fs.readdirSync(sitesDir).filter(f => f.endsWith('.conf'));
+  const generatedFilenames = generated.map(g => path.basename(g.file));
+  
+  existingFiles.forEach(file => {
+    if (!generatedFilenames.includes(file)) {
+      fs.unlinkSync(path.join(sitesDir, file));
+    }
+  });
+
   const includes = generated.map(g => `    include ${g.file};`).join('\n');
   const mainConfig = `events { worker_connections 1024; }
 http {
