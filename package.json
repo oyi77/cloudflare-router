@@ -1,6 +1,6 @@
 {
   "name": "cloudflare-router",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Cloudflare Tunnel + Nginx Reverse Proxy Manager with multi-account support. Manage subdomains, DNS, tunnels, and monitoring from one dashboard.",
   "main": "src/server.js",
   "bin": {
