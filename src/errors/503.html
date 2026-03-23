@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>503 - Service Unavailable</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0a; color: #e5e5e5; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .container { text-align: center; max-width: 500px; padding: 40px; }
+    .logo { font-size: 64px; margin-bottom: 24px; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    h1 { font-size: 72px; font-weight: 700; color: #f87171; margin-bottom: 16px; }
+    h2 { font-size: 24px; color: #fff; margin-bottom: 12px; }
+    p { color: #737373; margin-bottom: 24px; line-height: 1.6; }
+    .timer { font-size: 48px; font-weight: 700; color: #f97316; margin: 24px 0; }
+    .info { background: #171717; border: 1px solid #262626; border-radius: 12px; padding: 16px; margin-top: 24px; font-size: 12px; color: #737373; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">🔧</div>
+    <h1>503</h1>
+    <h2>Service Unavailable</h2>
+    <p>The service is temporarily unavailable. Please try again in a few moments.</p>
+    <div class="timer" id="timer">30</div>
+    <p>Auto-refreshing in <span id="countdown">30</span> seconds...</p>
+    <div class="info">
+      Cloudflare Router • Reverse Proxy Manager
+    </div>
+  </div>
+  <script>
+    let seconds = 30;
+    const timer = document.getElementById('timer');
+    const countdown = document.getElementById('countdown');
+    setInterval(() => {
+      seconds--;
+      timer.textContent = seconds;
+      countdown.textContent = seconds;
+      if (seconds <= 0) location.reload();
+    }, 1000);
+  </script>
+</body>
+</html>

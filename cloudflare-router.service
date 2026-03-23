@@ -1,0 +1,15 @@
+[Unit]
+Description=Cloudflare Router Dashboard
+After=network.target nginx.service
+
+[Service]
+Type=simple
+User=openclaw
+WorkingDirectory=/home/openclaw/.opencode/tools/cloudflare-router
+ExecStart=/usr/bin/node src/cli.js dashboard -p 7070
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
