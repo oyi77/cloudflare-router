@@ -165,6 +165,25 @@ def generate_nginx_config(apps: Dict[str, AppConfig]) -> None:
         for hostname, _ in config_parts
     ])
     
+    # Default server block for unmatched subdomains
+    default_server = f'''
+    server {{
+        listen {LISTEN_PORT} default_server;
+        server_name _;
+        
+        location / {{
+            return 404 '{{"error":"subdomain_not_found","message":"No service configured for this subdomain","host":"$host","hint":"Add the subdomain to apps.yaml to configure routing"}}';
+            add_header Content-Type application/json;
+            add_header X-Robots-Tag "noindex, nofollow";
+        }}
+        
+        location /cf-health {{
+            return 200 '{{"status":"ok","service":"cf-router-default","message":"Default catch-all is active"}}';
+            add_header Content-Type application/json;
+        }}
+    }}
+'''
+    
     main_config = f'''events {{ worker_connections 1024; }}
 http {{
     sendfile on; tcp_nopush on; tcp_nodelay on; keepalive_timeout 65;
@@ -174,6 +193,7 @@ http {{
     gzip_types text/plain text/css application/json application/javascript text/xml;
     
 {includes}
+{default_server}
 }}
 '''
     
