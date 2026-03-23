@@ -20,8 +20,6 @@ import yaml
 import socket
 import subprocess
 import time
-import threading
-import json
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -300,107 +298,6 @@ def cmd_remove(args: List[str]) -> None:
     
     print(f"Removed app: {name}")
 
-def cmd_daemon(args: List[str]) -> None:
-    """Run as daemon with metrics server and auto-reload on config changes."""
-    import http.server
-    import functools
-    
-    port = 9090
-    if args and args[0].startswith('--port'):
-        port = int(args[0].split('=')[1]) if '=' in args[0] else int(args[1])
-    
-    # Metrics storage
-    metrics = {
-        'reload_count': 0,
-        'last_reload': None,
-        'app_health': {},
-        'start_time': time.time()
-    }
-    
-    class MetricsHandler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            if self.path == '/metrics':
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/plain')
-                self.end_headers()
-                
-                output = []
-                output.append('# HELP cf_router_reloads_total Total nginx reloads')
-                output.append('# TYPE cf_router_reloads_total counter')
-                output.append(f'cf_router_reloads_total {metrics["reload_count"]}')
-                
-                output.append('# HELP cf_router_up 1 if router is running')
-                output.append('# TYPE cf_router_up gauge')
-                output.append('cf_router_up 1')
-                
-                for app_name, health in metrics['app_health'].items():
-                    output.append(f'cf_router_app_health{{app="{app_name}"}} {1 if health else 0}')
-                
-                output.append('# HELP cf_router_uptime_seconds Router uptime')
-                output.append('# TYPE cf_router_uptime_seconds gauge')
-                output.append(f'cf_router_uptime_seconds {time.time() - metrics["start_time"]}')
-                
-                self.wfile.write('\n'.join(output).encode())
-            elif self.path == '/health':
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                apps = load_apps()
-                health = {name: app.is_healthy() for name, app in apps.items()}
-                self.wfile.write(json.dumps({
-                    'status': 'ok',
-                    'apps': health,
-                    'metrics': {
-                        'reload_count': metrics['reload_count'],
-                        'last_reload': metrics['last_reload']
-                    }
-                }).encode())
-            elif self.path == '/':
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/html')
-                self.end_headers()
-                self.wfile.write(b'<h1>CF-Router Metrics</h1><p><a href="/metrics">Prometheus Metrics</a></p><p><a href="/health">Health Check</a></p>')
-            else:
-                self.send_error(404)
-        
-        def log_message(self, format, *args):
-            pass  # Suppress access logs
-    
-    server = http.server.HTTPServer(('', port), MetricsHandler)
-    thread = threading.Thread(target=server.serve_forever)
-    thread.daemon = True
-    thread.start()
-    
-    print(f"CF-Router daemon started on port {port}")
-    print(f"Metrics available at http://localhost:{port}/metrics")
-    print(f"Health check at http://localhost:{port}/health")
-    
-    # Watch for changes
-    last_mtime = 0
-    try:
-        while True:
-            if APPS_CONFIG.exists():
-                current_mtime = APPS_CONFIG.stat().st_mtime
-                if current_mtime != last_mtime:
-                    last_mtime = current_mtime
-                    apps = load_apps()
-                    generate_nginx_config(apps)
-                    if reload_nginx():
-                        metrics['reload_count'] += 1
-                        metrics['last_reload'] = time.time()
-                        print(f"[{time.strftime('%H:%M:%S')}] Config reloaded")
-            
-            # Update app health metrics
-            apps = load_apps()
-            for name, app in apps.items():
-                metrics['app_health'][name] = app.is_healthy()
-            
-            time.sleep(5)
-    except KeyboardInterrupt:
-        print("\nShutting down...")
-        server.shutdown()
-
-
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -416,8 +313,6 @@ def main():
         "discover": cmd_discover,
         "add": cmd_add,
         "remove": cmd_remove,
-        "daemon": cmd_daemon,
-        "serve": cmd_daemon,
     }
     
     if cmd not in commands:
