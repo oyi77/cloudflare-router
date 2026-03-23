@@ -6,9 +6,11 @@ const { loadConfig, addAccount, removeAccount, addZoneToAccount, removeZoneFromA
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
 const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords } = require('./cloudflare');
 const { startServer } = require('./server');
+const { startMCPServer } = require('./mcp');
+const portless = require('./portless');
 
 const program = new Command();
-program.name('cloudflare-router').description('Manage Cloudflare Tunnels, nginx, and DNS from one place').version('1.1.0');
+program.name('cloudflare-router').description('Manage Cloudflare Tunnels, nginx, and DNS from one place').version('1.2.0');
 
 program.command('account:add').description('Add a Cloudflare account')
   .requiredOption('--name <name>', 'Account name (e.g., Personal, Work)')
@@ -153,5 +155,156 @@ program.command('status').description('Show status')
 program.command('dashboard').description('Start web dashboard')
   .option('-p, --port <port>', 'Port', '7070')
   .action(async (opts) => { await startServer(parseInt(opts.port)); });
+
+program.command('mcp').description('Start MCP server for AI agent integration')
+  .action(() => {
+    console.error(chalk.cyan('Starting Cloudflare Router MCP Server...'));
+    console.error(chalk.gray('Protocol: JSON-RPC 2.0 over stdio'));
+    console.error(chalk.gray('Press Ctrl+C to stop'));
+    startMCPServer();
+  });
+
+// ── Portless commands ─────────────────────────────────────────────────────────
+
+program.command('port:register')
+  .description('Register a service and allocate a port (portless mode)')
+  .requiredOption('--service <name>', 'Service name (e.g., 1ai-backend)')
+  .option('--subdomain <sub>', 'Subdomain to map this service to')
+  .option('--account <id>', 'Cloudflare account ID (for auto-map)')
+  .option('--zone <id>', 'Cloudflare zone ID (for auto-map)')
+  .option('-d, --description <desc>', 'Service description')
+  .option('--auto-map', 'Auto-add to cf-router mappings after registration')
+  .action(async (opts) => {
+    try {
+      const port = await portless.registerService(opts.service, {
+        subdomain: opts.subdomain,
+        description: opts.description || '',
+        account: opts.account,
+        zone: opts.zone,
+      });
+      console.log(chalk.green(`✓ ${opts.service} → port ${port}`));
+
+      // Auto-map to cf-router if flags provided
+      if (opts.autoMap && opts.subdomain && opts.account && opts.zone) {
+        addMapping(opts.account, opts.zone, opts.subdomain, port, opts.description || opts.service);
+        const { generateAllNginxConfigs } = require('./nginx');
+        generateAllNginxConfigs();
+        console.log(chalk.green(`✓ Auto-mapped ${opts.subdomain}.* → localhost:${port} + nginx updated`));
+      }
+
+      // Output just the port number to stdout for shell capture:
+      // PORT=$(cfr port:get myservice)
+      process.stdout.write(`${port}\n`);
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+program.command('port:get')
+  .description('Get the allocated port for a registered service')
+  .argument('<service>', 'Service name')
+  .option('--raw', 'Output port number only (for shell: PORT=$(cfr port:get svc))')
+  .action((service, opts) => {
+    const port = portless.getPort(service);
+    if (port === null) {
+      if (!opts.raw) console.error(chalk.red(`✗ Service not registered: ${service}`));
+      process.exit(1);
+    }
+    if (opts.raw) {
+      process.stdout.write(`${port}`);
+    } else {
+      console.log(chalk.cyan(`${service}`) + chalk.gray(' → ') + chalk.green(`port ${port}`));
+    }
+  });
+
+program.command('port:list')
+  .description('List all registered portless services')
+  .action(() => {
+    const services = portless.listServices();
+    if (!services.length) {
+      console.log(chalk.yellow('No portless services registered'));
+      console.log(chalk.gray(`Register with: cfr port:register --service <name>`));
+      return;
+    }
+    console.log(chalk.bold('\nPortless Services:'));
+    console.log(chalk.gray('─'.repeat(70)));
+    services.forEach(svc => {
+      const sub = svc.subdomain ? chalk.gray(` → ${svc.subdomain}.*`) : '';
+      const desc = svc.description ? chalk.gray(` (${svc.description})`) : '';
+      console.log(`${chalk.green('●')} ${chalk.cyan(svc.name.padEnd(28))} port ${chalk.yellow(String(svc.port).padEnd(6))}${sub}${desc}`);
+    });
+    console.log(chalk.gray('─'.repeat(70)));
+    console.log(chalk.gray(`Total: ${services.length} services | Range: ${portless.PORT_RANGE_START}-${portless.PORT_RANGE_END}`));
+  });
+
+program.command('port:release')
+  .description('Release a service port registration')
+  .argument('<service>', 'Service name')
+  .action((service) => {
+    try {
+      const port = portless.releaseService(service);
+      console.log(chalk.green(`✓ Released ${service} (port ${port})`));
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+program.command('port:env')
+  .description('Output all portless ports as shell export statements')
+  .option('--format <fmt>', 'Output format: shell (default), json, dotenv', 'shell')
+  .action(() => {
+    const env = portless.getEnvMap();
+    const opts = program.opts();
+    const fmt = (opts.format || 'shell');
+
+    if (fmt === 'json') {
+      console.log(JSON.stringify(env, null, 2));
+    } else if (fmt === 'dotenv') {
+      Object.entries(env).forEach(([k, v]) => console.log(`${k}=${v}`));
+    } else {
+      // shell — sourceable
+      Object.entries(env).forEach(([k, v]) => console.log(`export ${k}=${v}`));
+    }
+  });
+
+program.command('port:sync')
+  .description('Sync portless services to cf-router mappings (register → nginx → DNS)')
+  .requiredOption('--account <id>', 'Cloudflare account ID')
+  .requiredOption('--zone <id>', 'Cloudflare zone ID')
+  .action(async (opts) => {
+    const services = portless.listServices().filter(s => s.subdomain && s.account === opts.account && s.zone === opts.zone);
+    if (!services.length) {
+      console.log(chalk.yellow('No portless services with subdomain+account+zone to sync'));
+      return;
+    }
+
+    console.log(chalk.bold(`\nSyncing ${services.length} portless services...`));
+    for (const svc of services) {
+      addMapping(opts.account, opts.zone, svc.subdomain, svc.port, svc.description || svc.name);
+      console.log(chalk.green(`  ✓ ${svc.subdomain} → port ${svc.port}`));
+    }
+
+    const { generateAllNginxConfigs } = require('./nginx');
+    generateAllNginxConfigs();
+    console.log(chalk.green(`✓ nginx configs regenerated`));
+
+    console.log(chalk.blue('\nDeploying DNS...'));
+    const { deployMappingsForZone } = require('./cloudflare');
+    const { loadConfig, loadMappings } = require('./config');
+    const config = loadConfig();
+    const account = config.accounts.find(a => a.id === opts.account);
+    const zone = account?.zones?.find(z => z.zone_id === opts.zone);
+    if (zone) {
+      const { mappings } = loadMappings(opts.account, opts.zone);
+      const results = await deployMappingsForZone(opts.account, opts.zone, zone.domain, zone.tunnel_id, mappings);
+      results.forEach(r => {
+        const icon = r.status === 'created' ? chalk.green('✓') : chalk.yellow('•');
+        console.log(`  ${icon} ${r.subdomain}: ${r.status}`);
+      });
+    }
+    console.log(chalk.green('\n✓ Portless sync complete'));
+  });
 
 program.parse();

@@ -14,6 +14,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "cli": "node src/cli.js",
+    "mcp": "node src/cli.js mcp",
     "install-completions": "cp completions/cloudflare-router.bash /etc/bash_completion.d/ && cp completions/cloudflare-router.zsh /usr/share/zsh/site-functions/_cloudflare-router",
     "postinstall": "echo 'Run npm run install-completions for shell autocompletion'"
   },
