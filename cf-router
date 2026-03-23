@@ -171,15 +171,42 @@ def generate_nginx_config(apps: Dict[str, AppConfig]) -> None:
         listen {LISTEN_PORT} default_server;
         server_name _;
         
+        # Suppress server tokens to hide nginx version
+        server_tokens off;
+        
+        root {NGINX_SITES_DIR.parent / 'default'};
+        
+        # Serve custom 404 page for all requests
         location / {{
-            return 404 '{{"error":"subdomain_not_found","message":"No service configured for this subdomain","host":"$host","hint":"Add the subdomain to apps.yaml to configure routing"}}';
+            try_files /404.html =404;
+        }}
+        
+        # API clients get JSON response
+        location ~* \\.(json|api)$ {{
+            return 404 '{{"error":"not_found"}}';
             add_header Content-Type application/json;
             add_header X-Robots-Tag "noindex, nofollow";
         }}
         
-        location /cf-health {{
-            return 200 '{{"status":"ok","service":"cf-router-default","message":"Default catch-all is active"}}';
+        # Health check for monitoring
+        location = /cf-health {{
+            return 200 '{{"status":"ok","service":"cf-router-default"}}';
             add_header Content-Type application/json;
+        }}
+        
+        # Block common scanner paths - return 444 (drop connection)
+        location ~* \\.(env|git|svn|htaccess|htpasswd|DS_Store|bak|backup|sql|db|log|txt|xml|yml|yaml|toml|ini)$ {{
+            return 444;
+        }}
+        
+        # Block sensitive directories
+        location ~* ^/(wp-admin|wp-login|phpmyadmin|admin|administrator|config|backup|debug|test|shell) {{
+            return 444;
+        }}
+        
+        # Block .env, .git, .svn files and all sub-paths
+        location ~ ^/\\.(env|git|svn|htaccess)(/|$) {{
+            return 444;
         }}
     }}
 '''
