@@ -78,6 +78,15 @@ apps:
     health_check: /
     enabled: true
 
+  # CF-Router's own metrics server
+  cf-router:
+    mode: port
+    hostname: cf-router.aitradepulse.com
+    host: 127.0.0.1
+    port: 9090
+    health_check: /health
+    enabled: true
+
   # === SOCKET MODE ===
   # Unix socket: app creates a socket file, no port needed
   # To use: start your app with the socket

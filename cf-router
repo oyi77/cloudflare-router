@@ -24,6 +24,7 @@ import threading
 import json
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+from urllib.parse import urlparse
 
 CONFIG_DIR = Path.home() / ".cloudflare-router"
 APPS_CONFIG = CONFIG_DIR / "apps.yaml"
@@ -318,44 +319,21 @@ def cmd_daemon(args: List[str]) -> None:
     }
     
     class MetricsHandler(http.server.BaseHTTPRequestHandler):
+        # Suppress default error logging for broken pipes
+        def handle_one_request(self):
+            try:
+                super().handle_one_request()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                self.close_connection = True
+        
         def do_GET(self):
-            if self.path == '/metrics':
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/plain')
-                self.end_headers()
-                
-                output = []
-                output.append('# HELP cf_router_reloads_total Total nginx reloads')
-                output.append('# TYPE cf_router_reloads_total counter')
-                output.append(f'cf_router_reloads_total {metrics["reload_count"]}')
-                
-                output.append('# HELP cf_router_up 1 if router is running')
-                output.append('# TYPE cf_router_up gauge')
-                output.append('cf_router_up 1')
-                
-                for app_name, health in metrics['app_health'].items():
-                    output.append(f'cf_router_app_health{{app="{app_name}"}} {1 if health else 0}')
-                
-                output.append('# HELP cf_router_uptime_seconds Router uptime')
-                output.append('# TYPE cf_router_uptime_seconds gauge')
-                output.append(f'cf_router_uptime_seconds {time.time() - metrics["start_time"]}')
-                
-                self.wfile.write('\n'.join(output).encode())
-            elif self.path == '/health':
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                apps = load_apps()
-                health = {name: app.is_healthy() for name, app in apps.items()}
-                self.wfile.write(json.dumps({
-                    'status': 'ok',
-                    'apps': health,
-                    'metrics': {
-                        'reload_count': metrics['reload_count'],
-                        'last_reload': metrics['last_reload']
-                    }
-                }).encode())
-            elif self.path == '/':
+            parsed = urlparse(self.path)
+            path = parsed.path
+            if path == '/metrics':
+                self.serve_metrics()
+            elif path == '/health':
+                self.serve_health()
+            elif path == '/':
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html')
                 self.end_headers()
@@ -363,8 +341,48 @@ def cmd_daemon(args: List[str]) -> None:
             else:
                 self.send_error(404)
         
+        def serve_metrics(self):
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain; version=0.0.4')
+            self.end_headers()
+            output = []
+            output.append('# HELP cf_router_reloads_total Total nginx reloads')
+            output.append('# TYPE cf_router_reloads_total counter')
+            output.append(f'cf_router_reloads_total {metrics["reload_count"]}')
+            output.append('# HELP cf_router_up 1 if router is running')
+            output.append('# TYPE cf_router_up gauge')
+            output.append('cf_router_up 1')
+            for app_name, health in metrics['app_health'].items():
+                output.append(f'cf_router_app_health{{app="{app_name}"}} {1 if health else 0}')
+            output.append('# HELP cf_router_uptime_seconds Router uptime')
+            output.append('# TYPE cf_router_uptime_seconds gauge')
+            output.append(f'cf_router_uptime_seconds {time.time() - metrics["start_time"]}')
+            self.wfile.write('\n'.join(output).encode())
+
+        def serve_health(self):
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            apps = load_apps()
+            health = {name: app.is_healthy() for name, app in apps.items()}
+            self.wfile.write(json.dumps({
+                'status': 'ok',
+                'apps': health,
+                'metrics': {
+                    'reload_count': metrics['reload_count'],
+                    'last_reload': metrics['last_reload']
+                }
+            }).encode())
+
         def log_message(self, format, *args):
             pass  # Suppress access logs
+        
+        def handle_error(self, request, client_address):
+            """Handle errors without crashing - especially broken pipes."""
+            exc_type, exc_value, _ = sys.exc_info()
+            if exc_type in (BrokenPipeError, ConnectionResetError):
+                return  # Silently ignore client disconnections
+            super().handle_error(request, client_address)
     
     server = http.server.HTTPServer(('', port), MetricsHandler)
     thread = threading.Thread(target=server.serve_forever)
