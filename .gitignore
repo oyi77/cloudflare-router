@@ -6,3 +6,7 @@ config.yml
 mappings/
 nginx/
 tunnel/
+*.backup
+*.bak*
+mappings.yml
+portless.yml
