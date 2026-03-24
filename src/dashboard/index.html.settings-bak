@@ -424,7 +424,6 @@
     const API = window.location.origin;
     let authToken = localStorage.getItem('cf-router-token') || '';
     let ws = null;
-    const APP_PROCESSES = new Map(); // Track running app processes
     const commonPorts = {80:'HTTP',443:'HTTPS',3000:'Node',3001:'App',3002:'API',3003:'Dashboard',5432:'PostgreSQL',6379:'Redis',6969:'Nginx',7070:'CF-Router',8080:'Alt-HTTP',8443:'Alt-HTTPS'};
 
     async function fetchJSON(url, opts = {}) {
@@ -1116,8 +1115,7 @@ async function loadAppsSection() {
           </div>
         </div>
       </div>
-    `;
-  }).join('');
+    `).join('');
 }
 
 async function loadBackupSection() {
