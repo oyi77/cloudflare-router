@@ -18,6 +18,7 @@ const { rateLimitMiddleware, addToWhitelist, addToBlacklist, removeFromWhitelist
 const { createBackup, restoreBackup, listBackups, runHealthCheck, getHealthHistory, startAutoBackup, getBackupConfig, saveBackupConfig } = require('./backup');
 const { getAvailableLanguages, translate, i18nMiddleware } = require('./i18n');
 const { requestLoggerMiddleware, getAccessLogs, getErrorLogs, clearLogs, getLogStats } = require('./logger');
+const { registerService, getPort, releaseService, listServices, updateService } = require('./portless');
 
 const app = express();
 
@@ -713,6 +714,184 @@ app.post('/api/scan-ports', (req, res) => {
     });
     socket.connect(port, '127.0.0.1');
   });
+});
+
+const SERVERS_FILE = path.join(CONFIG_DIR, 'servers.yml');
+
+function loadServers() {
+  if (!fs.existsSync(SERVERS_FILE)) return { servers: [] };
+  return yaml.load(fs.readFileSync(SERVERS_FILE, 'utf8')) || { servers: [] };
+}
+
+function saveServers(data) {
+  fs.writeFileSync(SERVERS_FILE, yaml.dump(data, { indent: 2 }));
+}
+
+app.get('/api/servers', (req, res) => {
+  res.json(loadServers());
+});
+
+app.post('/api/servers', [
+  body('name').trim().isLength({ min: 1, max: 100 }),
+  body('type').isIn(['local', 'ssh']),
+  body('host').optional().trim(),
+  body('port').optional().isInt({ min: 1, max: 65535 }),
+  body('username').optional().trim(),
+  body('keyPath').optional().trim(),
+], handleValidationErrors, (req, res) => {
+  const data = loadServers();
+  const server = {
+    id: uuidv4(),
+    ...req.body,
+    created_at: new Date().toISOString(),
+  };
+  data.servers.push(server);
+  saveServers(data);
+  res.status(201).json({ success: true, server });
+});
+
+app.put('/api/servers/:id', [
+  param('id').trim().isUUID(),
+  body('name').optional().trim().isLength({ min: 1, max: 100 }),
+  body('host').optional().trim(),
+  body('port').optional().isInt({ min: 1, max: 65535 }),
+], handleValidationErrors, (req, res) => {
+  const data = loadServers();
+  const server = data.servers.find(s => s.id === req.params.id);
+  if (!server) throw new APIError('Server not found', 404, 'not_found');
+  Object.assign(server, req.body, { updated_at: new Date().toISOString() });
+  saveServers(data);
+  res.json({ success: true, server });
+});
+
+app.delete('/api/servers/:id', [param('id').trim().isUUID()], handleValidationErrors, (req, res) => {
+  const data = loadServers();
+  data.servers = data.servers.filter(s => s.id !== req.params.id);
+  saveServers(data);
+  res.json({ success: true });
+});
+
+app.get('/api/portless', (req, res) => {
+  res.json({ services: listServices() });
+});
+
+app.post('/api/portless', [
+  body('name').trim().matches(/^[a-z0-9-_]+$/i),
+  body('subdomain').optional().trim(),
+  body('description').optional().trim(),
+], handleValidationErrors, asyncHandler(async (req, res) => {
+  const { name, subdomain, description } = req.body;
+  const port = await registerService(name, { subdomain, description });
+  res.status(201).json({ success: true, name, port });
+}));
+
+app.delete('/api/portless/:name', [param('name').trim().matches(/^[a-z0-9-_]+$/i)], handleValidationErrors, (req, res) => {
+  releaseService(req.params.name);
+  res.json({ success: true });
+});
+
+const APP_PROCESSES = new Map();
+
+app.post('/api/apps/:name/start', [param('name').trim()], handleValidationErrors, asyncHandler(async (req, res) => {
+  const yaml = require('js-yaml');
+  const appsFile = path.join(CONFIG_DIR, 'apps.yml');
+  if (!fs.existsSync(appsFile)) throw new APIError('No apps configured', 404, 'not_found');
+  
+  const data = yaml.load(fs.readFileSync(appsFile, 'utf8'));
+  const app = data.apps?.[req.params.name];
+  if (!app) throw new APIError('App not found', 404, 'not_found');
+  
+  if (APP_PROCESSES.has(req.params.name)) {
+    return res.json({ success: true, message: 'App already running', pid: APP_PROCESSES.get(req.params.name).pid });
+  }
+  
+  let command;
+  if (app.command) {
+    command = app.command;
+  } else if (app.mode === 'portless') {
+    const port = getPort(req.params.name) || await registerService(req.params.name);
+    command = `PORT=${port} ${app.script || 'npm start'}`;
+  } else {
+    command = app.script || 'npm start';
+  }
+  
+  const cwd = app.cwd || path.join(process.env.HOME, 'apps', req.params.name);
+  const child = exec(command, { cwd, env: { ...process.env, ...app.env } });
+  
+  APP_PROCESSES.set(req.params.name, {
+    pid: child.pid,
+    started_at: new Date().toISOString(),
+    command,
+  });
+  
+  child.on('exit', (code) => {
+    APP_PROCESSES.delete(req.params.name);
+    console.log(`App ${req.params.name} exited with code ${code}`);
+  });
+  
+  res.json({ success: true, pid: child.pid });
+}));
+
+app.post('/api/apps/:name/stop', [param('name').trim()], handleValidationErrors, (req, res) => {
+  const proc = APP_PROCESSES.get(req.params.name);
+  if (!proc) {
+    return res.status(400).json({ error: 'App not running', code: 'not_running' });
+  }
+  
+  try {
+    process.kill(proc.pid, 'SIGTERM');
+    APP_PROCESSES.delete(req.params.name);
+    res.json({ success: true });
+  } catch (e) {
+    throw new APIError('Failed to stop app: ' + e.message, 500, 'stop_failed');
+  }
+});
+
+app.get('/api/apps/:name/status', [param('name').trim()], handleValidationErrors, (req, res) => {
+  const proc = APP_PROCESSES.get(req.params.name);
+  res.json({
+    name: req.params.name,
+    running: !!proc,
+    pid: proc?.pid || null,
+    started_at: proc?.started_at || null,
+  });
+});
+
+app.get('/api/apps/:name/logs', [param('name').trim(), query('lines').optional().isInt({ min: 1, max: 1000 }).toInt()], handleValidationErrors, (req, res) => {
+  const lines = req.query.lines || 100;
+  const logFile = path.join(CONFIG_DIR, 'logs', `app-${req.params.name}.log`);
+  
+  if (!fs.existsSync(logFile)) {
+    return res.json({ logs: [] });
+  }
+  
+  const logs = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).slice(-lines);
+  res.json({ logs });
+});
+
+app.get('/api/settings', (req, res) => {
+  const config = loadConfig();
+  res.json({
+    server: config.server || { port: 7070, host: '0.0.0.0' },
+    nginx: config.nginx || { listen_port: 6969 },
+    features: {
+      rate_limiting: true,
+      validation: true,
+      file_locking: true,
+    },
+  });
+});
+
+app.put('/api/settings', [
+  body('server.port').optional().isInt({ min: 1024, max: 65535 }),
+  body('server.host').optional().isIP(),
+  body('nginx.listen_port').optional().isInt({ min: 1, max: 65535 }),
+], handleValidationErrors, (req, res) => {
+  const config = loadConfig();
+  if (req.body.server) config.server = { ...config.server, ...req.body.server };
+  if (req.body.nginx) config.nginx = { ...config.nginx, ...req.body.nginx };
+  saveConfig(config);
+  res.json({ success: true });
 });
 
 app.use((err, req, res, next) => {
