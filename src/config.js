@@ -1,10 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
+const lockfile = require('proper-lockfile');
 
 const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.yml');
 const MAPPINGS_DIR = path.join(CONFIG_DIR, 'mappings');
+
+const LOCK_OPTIONS = { stale: 5000, updateInterval: 1000 };
 
 function ensureDir() {
   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -14,6 +17,19 @@ function ensureDir() {
   }
   if (!fs.existsSync(path.join(CONFIG_DIR, 'tunnel'))) {
     fs.mkdirSync(path.join(CONFIG_DIR, 'tunnel'), { recursive: true });
+  }
+}
+
+async function withLock(file, operation) {
+  ensureDir();
+  const lockPath = `${file}.lock`;
+  let release;
+  try {
+    release = await lockfile.lock(file, { ...LOCK_OPTIONS, lockfilePath: lockPath });
+    const result = await operation();
+    return result;
+  } finally {
+    if (release) await release();
   }
 }
 
@@ -31,7 +47,15 @@ function loadConfig() {
 
 function saveConfig(config) {
   ensureDir();
-  fs.writeFileSync(CONFIG_FILE, yaml.dump(config, { indent: 2, lineWidth: 120 }));
+  const tempFile = `${CONFIG_FILE}.tmp`;
+  fs.writeFileSync(tempFile, yaml.dump(config, { indent: 2, lineWidth: 120 }));
+  fs.renameSync(tempFile, CONFIG_FILE);
+}
+
+async function saveConfigSafe(config) {
+  return withLock(CONFIG_FILE, () => {
+    saveConfig(config);
+  });
 }
 
 function getAccountId(nameOrEmail) {
@@ -94,7 +118,17 @@ function loadMappings(accountId, zoneId) {
 
 function saveMappings(accountId, zoneId, data) {
   ensureDir();
-  fs.writeFileSync(getMappingFile(accountId, zoneId), yaml.dump(data, { indent: 2 }));
+  const file = getMappingFile(accountId, zoneId);
+  const tempFile = `${file}.tmp`;
+  fs.writeFileSync(tempFile, yaml.dump(data, { indent: 2 }));
+  fs.renameSync(tempFile, file);
+}
+
+async function saveMappingsSafe(accountId, zoneId, data) {
+  const file = getMappingFile(accountId, zoneId);
+  return withLock(file, () => {
+    saveMappings(accountId, zoneId, data);
+  });
 }
 
 function addMapping(accountId, zoneId, subdomain, port, description = '', protocol = 'http') {
@@ -157,8 +191,8 @@ function getAllMappings() {
 function getConfigDir() { return CONFIG_DIR; }
 
 module.exports = {
-  loadConfig, saveConfig, getConfigDir, CONFIG_DIR, CONFIG_FILE,
+  loadConfig, saveConfig, saveConfigSafe, getConfigDir, CONFIG_DIR, CONFIG_FILE,
   getAccountId, addAccount, removeAccount,
   addZoneToAccount, removeZoneFromAccount,
-  loadMappings, saveMappings, addMapping, removeMapping, toggleMapping, getAllMappings
+  loadMappings, saveMappings, saveMappingsSafe, addMapping, removeMapping, toggleMapping, getAllMappings
 };

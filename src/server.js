@@ -1,5 +1,8 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const { body, param, query, validationResult } = require('express-validator');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -7,6 +10,7 @@ const { WebSocketServer } = require('ws');
 const { execSync, exec } = require('child_process');
 const net = require('net');
 const tls = require('tls');
+const { v4: uuidv4 } = require('uuid');
 const { loadConfig, saveConfig, addAccount, removeAccount, addZoneToAccount, removeZoneFromAccount, addMapping, removeMapping, toggleMapping, getAllMappings, CONFIG_DIR, MAPPINGS_DIR } = require('./config');
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
 const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords, listTunnelsForAccount } = require('./cloudflare');
@@ -16,11 +20,33 @@ const { getAvailableLanguages, translate, i18nMiddleware } = require('./i18n');
 const { requestLoggerMiddleware, getAccessLogs, getErrorLogs, clearLogs, getLogStats } = require('./logger');
 
 const app = express();
-app.use(cors());
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      connectSrc: ["'self'", "ws:", "wss:"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || true,
+  credentials: true
+}));
+
 app.use(express.json({ limit: '10mb' }));
-app.use(rateLimitMiddleware({ windowMs: 60000, max: 100 }));
 app.use(i18nMiddleware);
 app.use(requestLoggerMiddleware);
+
+app.use((req, res, next) => {
+  req.id = req.headers['x-request-id'] || uuidv4();
+  res.setHeader('X-Request-ID', req.id);
+  next();
+});
 
 function loadEnv() {
   const envPath = path.join(CONFIG_DIR, '.env');
@@ -44,7 +70,49 @@ function authMiddleware(req, res, next) {
   res.status(401).json({ error: 'Unauthorized', code: 'auth_required' });
 }
 
-app.post('/api/auth/login', (req, res) => {
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Validation failed',
+      code: 'validation_error',
+      details: errors.array().map(e => ({ field: e.path, message: e.msg }))
+    });
+  }
+  next();
+};
+
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
+class APIError extends Error {
+  constructor(message, statusCode = 500, code = 'internal_error') {
+    super(message);
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many login attempts, please try again later', code: 'rate_limit_exceeded' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const apiRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  message: { error: 'Too many requests', code: 'rate_limit_exceeded' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api', apiRateLimit);
+
+app.post('/api/auth/login', authRateLimit, (req, res) => {
   const { password } = req.body;
   if (!DASHBOARD_PASSWORD) return res.json({ success: true, token: '' });
   if (password === DASHBOARD_PASSWORD) return res.json({ success: true, token: DASHBOARD_PASSWORD });
@@ -64,6 +132,51 @@ const requestStats = { total: 0, success: 0, errors: 0, history: [] };
 const healthChecks = new Map();
 const webhooks = [];
 
+const paginate = (items, page = 1, limit = 50) => {
+  const start = (page - 1) * limit;
+  const end = start + limit;
+  return {
+    data: items.slice(start, end),
+    pagination: { page, limit, total: items.length, pages: Math.ceil(items.length / limit) }
+  };
+};
+
+const validators = {
+  account: {
+    create: [
+      body('name').trim().isLength({ min: 1, max: 100 }).withMessage('Name is required'),
+      body('email').trim().isEmail().normalizeEmail().withMessage('Valid email required'),
+      body('api_key').optional().trim().isLength({ min: 10 }),
+      body('api_token').optional().trim().isLength({ min: 10 }),
+    ],
+    id: [param('id').trim().isLength({ min: 1 })],
+  },
+  zone: {
+    create: [
+      param('id').trim().isLength({ min: 1 }),
+      body('zone_id').trim().isLength({ min: 1 }),
+      body('domain').trim().isFQDN(),
+    ],
+    remove: [param('id').trim().isLength({ min: 1 }), param('zoneId').trim().isLength({ min: 1 })],
+  },
+  mapping: {
+    create: [
+      body('account_id').trim().isLength({ min: 1 }),
+      body('zone_id').trim().isLength({ min: 1 }),
+      body('subdomain').trim().isLength({ min: 1, max: 63 }).matches(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/i),
+      body('port').isInt({ min: 1, max: 65535 }),
+    ],
+    remove: [param('account').trim(), param('zone').trim(), param('subdomain').trim()],
+    toggle: [body('enabled').isBoolean()],
+  },
+  list: [
+    query('page').optional().isInt({ min: 1 }).toInt(),
+    query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
+    query('sort').optional().trim(),
+    query('filter').optional().trim(),
+  ],
+};
+
 app.use((req, res, next) => {
   requestStats.total++;
   const hour = new Date().toISOString().slice(0, 13);
@@ -78,48 +191,43 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/api/accounts', (req, res) => {
-  try {
-    const config = loadConfig();
-    const safe = (config.accounts || []).map(a => ({
-      id: a.id, name: a.name, email: a.email,
-      api_key_masked: a.api_key ? '...' + a.api_key.slice(-4) : (a.api_token ? '...' + a.api_token.slice(-4) : 'none'),
-      zones: (a.zones || []).map(z => ({ zone_id: z.zone_id, domain: z.domain, tunnel_id: z.tunnel_id }))
-    }));
-    res.json(safe);
-  } catch (error) { res.status(500).json({ error: error.message }); }
-});
+app.get('/api/accounts', asyncHandler(async (req, res) => {
+  const config = loadConfig();
+  const safe = (config.accounts || []).map(a => ({
+    id: a.id, name: a.name, email: a.email,
+    api_key_masked: a.api_key ? '...' + a.api_key.slice(-4) : (a.api_token ? '...' + a.api_token.slice(-4) : 'none'),
+    zones: (a.zones || []).map(z => ({ zone_id: z.zone_id, domain: z.domain, tunnel_id: z.tunnel_id }))
+  }));
+  res.json(safe);
+}));
 
-app.post('/api/accounts', (req, res) => {
-  try {
-    const { name, email, api_key, api_token } = req.body;
-    const accounts = addAccount(name, email, api_key || api_token);
-    res.json({ success: true, accounts });
-  } catch (error) { res.status(500).json({ error: error.message }); }
-});
+app.post('/api/accounts', validators.account.create, handleValidationErrors, asyncHandler(async (req, res) => {
+  const { name, email, api_key, api_token } = req.body;
+  if (!api_key && !api_token) {
+    throw new APIError('Either api_key or api_token required', 400, 'missing_credentials');
+  }
+  const accounts = addAccount(name, email, api_key || api_token);
+  res.status(201).json({ success: true, accounts });
+}));
 
-app.delete('/api/accounts/:id', (req, res) => {
-  try { removeAccount(req.params.id); res.json({ success: true }); }
-  catch (error) { res.status(500).json({ error: error.message }); }
-});
+app.delete('/api/accounts/:id', validators.account.id, handleValidationErrors, asyncHandler(async (req, res) => {
+  removeAccount(req.params.id);
+  res.json({ success: true });
+}));
 
-app.get('/api/accounts/:id/verify', async (req, res) => {
-  try { res.json(await verifyAccount(req.params.id)); }
-  catch (error) { res.status(500).json({ error: error.message }); }
-});
+app.get('/api/accounts/:id/verify', validators.account.id, handleValidationErrors, asyncHandler(async (req, res) => {
+  res.json(await verifyAccount(req.params.id));
+}));
 
-app.get('/api/accounts/:id/discover', async (req, res) => {
-  try { res.json(await discoverZones(req.params.id)); }
-  catch (error) { res.status(500).json({ error: error.message }); }
-});
+app.get('/api/accounts/:id/discover', validators.account.id, handleValidationErrors, asyncHandler(async (req, res) => {
+  res.json(await discoverZones(req.params.id));
+}));
 
-app.post('/api/accounts/:id/zones', (req, res) => {
-  try {
-    const { zone_id, domain, tunnel_id, tunnel_credentials } = req.body;
-    const zones = addZoneToAccount(req.params.id, zone_id, domain, tunnel_id, tunnel_credentials);
-    res.json({ success: true, zones });
-  } catch (error) { res.status(500).json({ error: error.message }); }
-});
+app.post('/api/accounts/:id/zones', validators.zone.create, handleValidationErrors, asyncHandler(async (req, res) => {
+  const { zone_id, domain, tunnel_id, tunnel_credentials } = req.body;
+  const zones = addZoneToAccount(req.params.id, zone_id, domain, tunnel_id, tunnel_credentials);
+  res.status(201).json({ success: true, zones });
+}));
 
 app.delete('/api/accounts/:id/zones/:zoneId', (req, res) => {
   try { removeZoneFromAccount(req.params.id, req.params.zoneId); res.json({ success: true }); }
@@ -166,29 +274,52 @@ app.get('/api/tunnels/all', async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.get('/api/mappings', (req, res) => {
-  try { res.json(getAllMappings()); }
-  catch (error) { res.status(500).json({ error: error.message }); }
-});
+app.get('/api/mappings', validators.list, handleValidationErrors, asyncHandler(async (req, res) => {
+  const { page = 1, limit = 50, sort, filter } = req.query;
+  let mappings = getAllMappings();
 
-app.post('/api/mappings', (req, res) => {
-  try {
-    const { account_id, zone_id, subdomain, port, description } = req.body;
-    if (!account_id || !zone_id || !subdomain || !port) return res.status(400).json({ error: 'Missing fields' });
-    const mappings = addMapping(account_id, zone_id, subdomain, port, description || '');
-    res.json({ success: true, mappings });
-  } catch (error) { res.status(500).json({ error: error.message }); }
-});
+  if (filter) {
+    const f = filter.toLowerCase();
+    mappings = mappings.filter(m =>
+      m.subdomain?.toLowerCase().includes(f) ||
+      m.domain?.toLowerCase().includes(f) ||
+      m.account_name?.toLowerCase().includes(f)
+    );
+  }
 
-app.delete('/api/mappings/:account/:zone/:subdomain', (req, res) => {
-  try { removeMapping(req.params.account, req.params.zone, req.params.subdomain); res.json({ success: true }); }
-  catch (error) { res.status(500).json({ error: error.message }); }
-});
+  if (sort) {
+    const [field, order] = sort.split(':');
+    mappings.sort((a, b) => {
+      const aVal = a[field] || '';
+      const bVal = b[field] || '';
+      return order === 'desc' ? String(bVal).localeCompare(String(aVal)) : String(aVal).localeCompare(String(bVal));
+    });
+  }
 
-app.patch('/api/mappings/:account/:zone/:subdomain', (req, res) => {
-  try { toggleMapping(req.params.account, req.params.zone, req.params.subdomain, req.body.enabled); res.json({ success: true }); }
-  catch (error) { res.status(500).json({ error: error.message }); }
-});
+  res.json(paginate(mappings, page, limit));
+}));
+
+app.post('/api/mappings', validators.mapping.create, handleValidationErrors, asyncHandler(async (req, res) => {
+  const { account_id, zone_id, subdomain, port, description } = req.body;
+  const mappings = addMapping(account_id, zone_id, subdomain, port, description || '');
+  res.status(201).json({ success: true, mappings });
+}));
+
+app.delete('/api/mappings/:account/:zone/:subdomain', validators.mapping.remove, handleValidationErrors, asyncHandler(async (req, res) => {
+  removeMapping(req.params.account, req.params.zone, req.params.subdomain);
+  res.json({ success: true });
+}));
+
+app.patch('/api/mappings/:account/:zone/:subdomain', validators.mapping.remove, validators.mapping.toggle, handleValidationErrors, asyncHandler(async (req, res) => {
+  toggleMapping(req.params.account, req.params.zone, req.params.subdomain, req.body.enabled);
+  res.json({ success: true });
+}));
+
+app.put('/api/mappings/:account/:zone/:subdomain', validators.mapping.remove, handleValidationErrors, asyncHandler(async (req, res) => {
+  const { enabled } = req.body;
+  const mappings = toggleMapping(req.params.account, req.params.zone, req.params.subdomain, enabled);
+  res.json({ success: true, mappings });
+}));
 
 app.post('/api/generate', (req, res) => {
   try { res.json({ success: true, ...generateAllNginxConfigs() }); }
@@ -268,15 +399,13 @@ app.get('/api/ip/lists', (req, res) => {
   res.json(getIPLists());
 });
 
-app.post('/api/ip/whitelist', (req, res) => {
-  const { ip } = req.body;
-  addToWhitelist(ip);
+app.post('/api/ip/whitelist', [body('ip').trim().isIP().withMessage('Valid IP address required')], handleValidationErrors, (req, res) => {
+  addToWhitelist(req.body.ip);
   res.json({ success: true });
 });
 
-app.post('/api/ip/blacklist', (req, res) => {
-  const { ip } = req.body;
-  addToBlacklist(ip);
+app.post('/api/ip/blacklist', [body('ip').trim().isIP().withMessage('Valid IP address required')], handleValidationErrors, (req, res) => {
+  addToBlacklist(req.body.ip);
   res.json({ success: true });
 });
 
@@ -584,6 +713,17 @@ app.post('/api/scan-ports', (req, res) => {
     });
     socket.connect(port, '127.0.0.1');
   });
+});
+
+app.use((err, req, res, next) => {
+  if (err instanceof APIError) {
+    return res.status(err.statusCode).json({ error: err.message, code: err.code });
+  }
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({ error: err.message, code: 'validation_error' });
+  }
+  console.error(`Error: ${err.message}`);
+  res.status(500).json({ error: 'Internal server error', code: 'internal_error' });
 });
 
 app.use('/', express.static(path.join(__dirname, 'dashboard')));

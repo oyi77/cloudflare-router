@@ -71,9 +71,30 @@
     .health-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
     .health-dot.healthy { background:var(--green); } .health-dot.unhealthy { background:var(--red); } .health-dot.pending { background:var(--yellow); }
     .theme-toggle { background:var(--border); border:none; color:var(--text); width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:16px; }
+    .toast-container { position:fixed; top:20px; right:20px; z-index:9999; display:flex; flex-direction:column; gap:8px; }
+    .toast { padding:12px 16px; border-radius:8px; font-size:13px; font-weight:500; animation:slideIn 0.3s ease; max-width:320px; word-break:break-word; box-shadow:0 4px 12px rgba(0,0,0,0.3); }
+    .toast.success { background:#052e16; color:var(--green); border:1px solid var(--green); }
+    [data-theme="light"] .toast.success { background:#dcfce7; }
+    .toast.error { background:#450a0a; color:var(--red); border:1px solid var(--red); }
+    [data-theme="light"] .toast.error { background:#fee2e2; }
+    .toast.warning { background:#422006; color:var(--yellow); border:1px solid var(--yellow); }
+    [data-theme="light"] .toast.warning { background:#fef3c7; }
+    .toast.info { background:#172554; color:var(--blue); border:1px solid var(--blue); }
+    [data-theme="light"] .toast.info { background:#dbeafe; }
+    @keyframes slideIn { from { transform:translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
+    @keyframes fadeOut { from { opacity:1; } to { opacity:0; } }
+    .toast.hiding { animation:fadeOut 0.3s ease forwards; }
+    .loading-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10000; display:none; justify-content:center; align-items:center; }
+    .loading-overlay.active { display:flex; }
+    .loading-spinner { width:48px; height:48px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .btn.loading { position:relative; pointer-events:none; opacity:0.7; }
+    .btn.loading::after { content:""; position:absolute; width:14px; height:14px; border:2px solid transparent; border-top-color:currentColor; border-radius:50%; animation:spin 0.8s linear infinite; margin-left:8px; }
   </style>
 </head>
 <body>
+  <div class="toast-container" id="toast-container"></div>
+  <div class="loading-overlay" id="loading-overlay"><div class="loading-spinner"></div></div>
   <div id="login-screen">
     <header><div class="container" style="text-align:center"><h1>Cloudflare Router</h1><p>Enter password to continue</p></div></header>
     <div class="login-box">
@@ -142,8 +163,8 @@
         <tbody id="domains-list"><tr><td colspan="6" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
       </div>
       <div id="tab-mappings" class="hidden">
-        <div class="card"><table><thead><tr><th>Subdomain</th><th>Port</th><th>Account</th><th>Zone</th><th>Status</th></tr></thead>
-        <tbody id="all-mappings"><tr><td colspan="5" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
+        <div class="card"><table><thead><tr><th>Subdomain</th><th>Port</th><th>Account</th><th>Zone</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="all-mappings"><tr><td colspan="6" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
       </div>
       <div id="tab-dns" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -305,9 +326,45 @@
     async function fetchJSON(url, opts = {}) {
       const headers = {'Content-Type':'application/json', ...opts.headers};
       if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-      const res = await fetch(API + url, {...opts, headers});
-      if (res.status === 401) { showLogin(); return null; }
-      return res.json();
+      try {
+        const res = await fetch(API + url, {...opts, headers});
+        if (res.status === 401) { showLogin(); return null; }
+        const data = await res.json();
+        if (!res.ok && data.error) {
+          showToast(data.error || 'Request failed', 'error');
+          return null;
+        }
+        return data;
+      } catch (err) {
+        showToast('Network error: ' + err.message, 'error');
+        return null;
+      }
+    }
+
+    function showToast(message, type = 'info', duration = 5000) {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.classList.add('hiding');
+        setTimeout(() => toast.remove(), 300);
+      }, duration);
+    }
+
+    function showLoading() {
+      document.getElementById('loading-overlay').classList.add('active');
+    }
+
+    function hideLoading() {
+      document.getElementById('loading-overlay').classList.remove('active');
+    }
+
+    function setButtonLoading(btn, loading) {
+      if (loading) btn.classList.add('loading');
+      else btn.classList.remove('loading');
+      btn.disabled = loading;
     }
 
     function showModal(id) { document.getElementById(id).style.display = 'block'; }
@@ -477,7 +534,8 @@
       document.getElementById('all-mappings').innerHTML = mappings.length ? mappings.map(m => `<tr>
         <td><strong>${m.full_domain}</strong></td><td>${m.port}</td><td>${m.account_name}</td><td>${m.domain}</td>
         <td><span class="badge ${m.enabled!==false?'badge-ok':'badge-err'}">${m.enabled!==false?'Active':'Disabled'}</span></td>
-      </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text3)">No mappings</td></tr>';
+        <td><button class="btn btn-d btn-sm" onclick="removeMapping('${m.account_id}','${m.zone_id}','${m.subdomain}')">×</button></td>
+      </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text3)">No mappings</td></tr>';
     }
 
     async function loadDNS() {
@@ -681,6 +739,8 @@
     }
 
     async function removeZone(accId, zoneId) { if (!confirm('Remove zone?')) return; await fetchJSON(`/api/accounts/${accId}/zones/${zoneId}`, {method:'DELETE'}); loadAccounts(); loadStats(); }
+
+    async function removeMapping(accId, zoneId, subdomain) { if (!confirm(`Remove mapping for ${subdomain}?`)) return; await fetchJSON(`/api/mappings/${accId}/${zoneId}/${subdomain}`, {method:'DELETE'}); loadMappings(); loadStats(); }
 
     async function addMapping(e) {
       e.preventDefault();

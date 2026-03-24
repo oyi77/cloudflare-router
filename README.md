@@ -11,15 +11,16 @@ One config file → auto-generate nginx + tunnel + DNS records.
 - **Subdomain Management**: Add/remove subdomains pointing to any local port
 - **Auto-Generate**: Nginx configs, tunnel ingress rules, DNS records
 - **Web Dashboard**: User-friendly UI at `http://localhost:7070`
-- **REST API**: Full CRUD with Swagger docs
+- **REST API**: Full CRUD with input validation and pagination
 - **MCP Server**: AI agent integration (OpenClaw, Claude, etc.)
 - **Multi-Domain**: Manage multiple domains from a single API token
 - **Multi-Language**: English, Russian, Chinese, Hindi, Indonesian
-- **Security**: Rate limiting, IP whitelist/blacklist, auth
+- **Security**: Helmet headers, rate limiting, IP whitelist/blacklist, auth
 - **Monitoring**: Health checks, traffic stats, SSL expiry, port scanner
 - **Request Logging**: Detailed access/error logs with analytics
 - **Docker Support**: Ready-to-use Dockerfile and docker-compose
 - **PWA Support**: Installable as a web app
+- **Test Suite**: Jest unit and integration tests
 
 ## Installation
 
@@ -112,7 +113,7 @@ cloudflare-router dashboard
         └──────┬───────┘
                │
                ▼
-  *.example.com ──→ localhost:PORT
+   *.example.com ──→ localhost:PORT
 ```
 
 ## CLI Commands
@@ -145,25 +146,99 @@ cp completions/cloudflare-router.zsh /usr/share/zsh/site-functions/_cloudflare-r
 
 ## API Endpoints
 
+### Accounts
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/accounts` | List accounts |
 | POST | `/api/accounts` | Add account |
 | DELETE | `/api/accounts/:id` | Remove account |
-| GET | `/api/mappings` | List mappings |
+| GET | `/api/accounts/:id/verify` | Verify account credentials |
+| GET | `/api/accounts/:id/discover` | Discover zones |
+| POST | `/api/accounts/:id/zones` | Add zone to account |
+| DELETE | `/api/accounts/:id/zones/:zoneId` | Remove zone |
+
+### Mappings
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/mappings` | List mappings (supports pagination, filter, sort) |
 | POST | `/api/mappings` | Add mapping |
+| PUT | `/api/mappings/:account/:zone/:subdomain` | Update mapping |
+| PATCH | `/api/mappings/:account/:zone/:subdomain` | Toggle enabled state |
+| DELETE | `/api/mappings/:account/:zone/:subdomain` | Remove mapping |
+
+### System
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/status` | System status |
 | GET | `/api/stats` | Traffic statistics |
+| POST | `/api/generate` | Generate nginx configs |
+| POST | `/api/deploy` | Deploy DNS records |
+
+### DNS & SSL
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/dns/all` | List all DNS records |
 | GET | `/api/ssl/all` | SSL certificates |
-| GET | `/api/health-checks` | Health checks |
-| POST | `/api/health-check/add` | Add health check |
-| GET | `/api/logs/access` | Access logs |
-| GET | `/api/logs/errors` | Error logs |
+| GET | `/api/ssl/:domain` | SSL details for domain |
+
+### Logs
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/logs/access?lines=100` | Access logs |
+| GET | `/api/logs/errors?lines=100` | Error logs |
 | GET | `/api/logs/stats` | Log statistics |
 | DELETE | `/api/logs` | Clear logs |
-| GET | `/api/languages` | Available languages |
-| GET | `/api/translations?lang=xx` | Get translations |
-| POST | `/api/config/export` | Export config |
-| POST | `/api/config/import` | Import config |
+
+### Security
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/ip/lists` | Get whitelist/blacklist |
+| POST | `/api/ip/whitelist` | Add IP to whitelist |
+| POST | `/api/ip/blacklist` | Add IP to blacklist |
+| DELETE | `/api/ip/whitelist/:ip` | Remove from whitelist |
+| DELETE | `/api/ip/blacklist/:ip` | Remove from blacklist |
+
+### Query Parameters
+
+**Pagination:**
+- `?page=1` - Page number (default: 1)
+- `?limit=50` - Items per page (default: 50, max: 100)
+
+**Filtering & Sorting:**
+- `?filter=api` - Filter by subdomain/domain/account name
+- `?sort=subdomain:asc` - Sort by field (asc/desc)
+
+## API Validation
+
+All POST/PUT endpoints validate input:
+
+| Field | Validation |
+|-------|-----------|
+| `email` | Valid email format |
+| `subdomain` | Alphanumeric + hyphens, 1-63 chars |
+| `port` | Integer 1-65535 |
+| `domain` | Valid FQDN |
+| `ip` | Valid IPv4/IPv6 |
+
+Validation errors return `400` with details:
+```json
+{
+  "error": "Validation failed",
+  "code": "validation_error",
+  "details": [
+    { "field": "subdomain", "message": "Valid subdomain required" }
+  ]
+}
+```
+
+## Security Features
+
+- **Helmet.js**: Security headers (CSP, HSTS, X-Frame-Options)
+- **Rate Limiting**: 
+  - Auth endpoints: 5 requests per 15 minutes
+  - API endpoints: 100 requests per minute
+- **CORS**: Configurable via `CORS_ORIGIN` env var
+- **Request Tracing**: `X-Request-ID` header for debugging
 
 ## MCP Tools (AI Agent Integration)
 
@@ -243,6 +318,45 @@ curl http://localhost:7070/api/logs/stats -H "Authorization: Bearer 123456"
 DASHBOARD_PASSWORD=123456        # Dashboard auth password
 AUTH_TOKEN=your-token            # API auth token
 WEBHOOK_URL=https://...          # Webhook for alerts
+CORS_ORIGIN=https://example.com  # CORS origin (default: all)
+```
+
+## Development
+
+### Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Watch mode
+npm run test:watch
+
+# Coverage report
+npm run test:coverage
+```
+
+### Project Structure
+
+```
+src/
+├── server.js       # Express API server
+├── config.js       # Configuration management
+├── cloudflare.js   # Cloudflare API client
+├── nginx.js        # Nginx config generator
+├── tunnel.js       # Tunnel config generator
+├── middleware.js   # Rate limiting & IP filtering
+├── logger.js       # Request logging
+├── backup.js       # Backup & restore
+├── i18n.js         # Internationalization
+├── cli.js          # CLI commands
+├── mcp.js          # MCP server
+└── dashboard/      # Web UI (static files)
+
+tests/
+├── config.test.js      # Config unit tests
+├── api.test.js         # API integration tests
+└── validation.test.js  # Validation tests
 ```
 
 ## License
