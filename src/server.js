@@ -27,8 +27,8 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      connectSrc: ["'self'", "ws:", "wss:"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://static.cloudflareinsights.com"],
+      connectSrc: ["'self'", "ws:", "wss:", "https://static.cloudflareinsights.com"],
     },
   },
   crossOriginEmbedderPolicy: false,

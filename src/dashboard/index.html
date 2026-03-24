@@ -1503,8 +1503,7 @@ function addSettingsModals() {
 const origShowDashboard = showDashboard;
 showDashboard = function() {
   origShowDashboard();
-  initI18n();
-  if (document.getElementById('tab-settings').classList.contains('active')) {
+  if (document.getElementById('tab-settings') && document.getElementById('tab-settings').classList.contains('active')) {
     loadSettings();
   }
   // Add modals if not already added
