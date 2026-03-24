@@ -120,6 +120,7 @@
         <div class="tab" data-tab="traffic" data-i18n="traffic">Traffic</div>
         <div class="tab" data-tab="ports" data-i18n="ports">Ports</div>
         <div class="tab" data-tab="nginx" data-i18n="nginx">Nginx</div>
+        <div class="tab" data-tab="routing" data-i18n="routing">Routing</div>
       </div>
       <div id="tab-accounts">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -130,7 +131,7 @@
             <button class="btn btn-s" onclick="restartAllTunnels()">🔄 Restart Tunnels</button>
           </div>
         </div>
-        <div id="accounts-list"></div>
+        <div id="accounts-list"><div style="text-align:center;padding:32px;color:var(--text3)">Loading...</div></div>
       </div>
       <div id="tab-domains" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -138,39 +139,48 @@
           <button class="btn btn-s" onclick="loadDomains()">Refresh</button>
         </div>
         <div class="card"><table><thead><tr><th>Domain</th><th>Zone ID</th><th>Tunnel</th><th>Mappings</th><th>Account</th><th>Actions</th></tr></thead>
-        <tbody id="domains-list"></tbody></table></div>
+        <tbody id="domains-list"><tr><td colspan="6" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
       </div>
       <div id="tab-mappings" class="hidden">
         <div class="card"><table><thead><tr><th>Subdomain</th><th>Port</th><th>Account</th><th>Zone</th><th>Status</th></tr></thead>
-        <tbody id="all-mappings"></tbody></table></div>
+        <tbody id="all-mappings"><tr><td colspan="5" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
       </div>
       <div id="tab-dns" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <h2 style="font-size:16px">DNS Records</h2><button class="btn btn-s" onclick="loadDNS()">Refresh</button>
         </div>
         <div class="card"><table><thead><tr><th>Name</th><th>Type</th><th>Content</th><th>Proxied</th><th>Account</th><th>Zone</th></tr></thead>
-        <tbody id="dns-list"></tbody></table></div>
+        <tbody id="dns-list"><tr><td colspan="6" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
       </div>
       <div id="tab-tunnels" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <h2 style="font-size:16px">Tunnels</h2><button class="btn btn-s" onclick="loadTunnels()">Refresh</button>
         </div>
         <div class="card"><table><thead><tr><th>Name</th><th>ID</th><th>Status</th><th>Type</th><th>Account</th><th>Created</th><th>Actions</th></tr></thead>
-        <tbody id="tunnels-list"></tbody></table></div>
+        <tbody id="tunnels-list"><tr><td colspan="7" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
       </div>
       <div id="tab-ssl" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <h2 style="font-size:16px">SSL Certificates</h2><button class="btn btn-s" onclick="loadSSL()">Check All</button>
         </div>
         <div class="card"><table><thead><tr><th>Domain</th><th>Expires</th><th>Days Left</th><th>Status</th></tr></thead>
-        <tbody id="ssl-list"></tbody></table></div>
+        <tbody id="ssl-list"><tr><td colspan="4" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
       </div>
       <div id="tab-health" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <h2 style="font-size:16px">Health Checks</h2><button class="btn btn-p" onclick="showModal('add-health-modal')">+ Add Check</button>
         </div>
-        <div class="card"><table><thead><tr><th>Name</th><th>URL</th><th>Status</th><th>Latency</th><th>Last Check</th><th>Actions</th></tr></thead>
-        <tbody id="health-list"></tbody></table></div>
+        <div id="health-loading" style="text-align:center;padding:32px;color:var(--text3)">Loading...</div>
+        <div id="health-apps-section" class="hidden" style="margin-bottom:16px">
+          <h3 style="font-size:13px;color:var(--text2);margin-bottom:8px">App Health Endpoints</h3>
+          <div class="card"><table><thead><tr><th>App</th><th>Hostname</th><th>Health Path</th><th>Status</th></tr></thead>
+          <tbody id="health-apps-list"></tbody></table></div>
+        </div>
+        <div id="health-manual-section" class="hidden">
+          <h3 style="font-size:13px;color:var(--text2);margin-bottom:8px">Custom Health Checks</h3>
+          <div class="card"><table><thead><tr><th>Name</th><th>URL</th><th>Status</th><th>Latency</th><th>Last Check</th><th>Actions</th></tr></thead>
+          <tbody id="health-list"></tbody></table></div>
+        </div>
       </div>
       <div id="tab-traffic" class="hidden">
         <div class="card" style="margin-bottom:16px">
@@ -189,13 +199,28 @@
           <h2 style="font-size:16px">Port Scanner</h2><button class="btn btn-p" onclick="scanPorts()">Scan Ports</button>
         </div>
         <div class="card"><table><thead><tr><th>Port</th><th>Status</th><th>Service</th></tr></thead>
-        <tbody id="ports-list"></tbody></table></div>
+        <tbody id="ports-list"><tr><td colspan="3" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
       </div>
       <div id="tab-nginx" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <h2 style="font-size:16px">Nginx Configs</h2><button class="btn btn-s" onclick="loadNginx()">Refresh</button>
+          <h2 style="font-size:16px">Nginx Configs</h2>
+          <div class="actions">
+            <button class="btn btn-s" onclick="loadNginx()">Refresh</button>
+            <button class="btn btn-p" onclick="reloadNginx()">🔄 Reload Nginx</button>
+          </div>
         </div>
-        <div id="nginx-list"></div>
+        <div id="nginx-list"><div style="text-align:center;padding:32px;color:var(--text3)">Loading...</div></div>
+      </div>
+      <div id="tab-routing" class="hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="font-size:16px">App Routing</h2>
+          <div class="actions">
+            <button class="btn btn-s" onclick="loadApps()">Refresh</button>
+            <button class="btn btn-p" onclick="showAddAppModal()">+ Add App</button>
+          </div>
+        </div>
+        <div class="card"><table><thead><tr><th>App Name</th><th>Hostname</th><th>Mode</th><th>Target</th><th>Health Check</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="apps-list"><tr><td colspan="7" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
       </div>
     </div>
   </div>
@@ -246,6 +271,27 @@
         <div style="margin-bottom:12px"><label>URL</label><input class="input" id="hc-url" placeholder="https://api.example.com/health" required></div>
         <div style="margin-bottom:12px"><label>Interval (seconds)</label><input class="input" id="hc-interval" type="number" value="30"></div>
         <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button type="button" class="btn btn-s" onclick="closeModal('add-health-modal')">Cancel</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="app-modal">
+    <div class="modal-box" style="max-width:520px">
+      <div class="modal-hdr"><h2 id="app-modal-title">Add App</h2><button class="close-btn" onclick="closeModal('app-modal')">&times;</button></div>
+      <form onsubmit="saveApp(event)">
+        <input type="hidden" id="app-edit-name" value="">
+        <div style="margin-bottom:12px"><label>App Name</label><input class="input" id="app-name" placeholder="my-app" required pattern="[a-z0-9-]+"></div>
+        <div style="margin-bottom:12px"><label>Hostname</label><input class="input" id="app-hostname" placeholder="my-app.aitradepulse.com" required></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div><label>Mode</label><select class="input" id="app-mode"><option value="port">Port</option><option value="socket">Socket</option><option value="portless">Portless</option></select></div>
+          <div><label>Port</label><input class="input" id="app-port" type="number" placeholder="3000"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div><label>Host</label><input class="input" id="app-host" value="127.0.0.1" placeholder="127.0.0.1"></div>
+          <div><label>Health Check Path</label><input class="input" id="app-health" placeholder="/health"></div>
+        </div>
+        <div style="margin-bottom:12px"><label><input type="checkbox" id="app-enabled" checked> Enabled</label></div>
+        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Save</button><button type="button" class="btn btn-s" onclick="closeModal('app-modal')">Cancel</button></div>
       </form>
     </div>
   </div>
@@ -331,7 +377,7 @@
 
     function updateHealthUI(checks) {
       const tbody = document.getElementById('health-list');
-      if (!checks.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3)">No health checks configured</td></tr>'; return; }
+      if (!checks.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3)">No custom health checks. Add one above or configure health_check in Routing tab.</td></tr>'; return; }
       tbody.innerHTML = checks.map(c => `<tr>
         <td><span class="health-dot ${c.status}"></span>${c.name}</td>
         <td style="font-size:11px;color:var(--text3)">${c.url}</td>
@@ -347,7 +393,7 @@
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       e.target.classList.add('active');
       const tab = e.target.dataset.tab;
-      ['accounts','domains','mappings','dns','tunnels','ssl','health','traffic','ports','nginx'].forEach(t => {
+      ['accounts','domains','mappings','dns','tunnels','ssl','health','traffic','ports','nginx','routing'].forEach(t => {
         document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab);
       });
       if (tab === 'domains') loadDomains();
@@ -358,6 +404,7 @@
       if (tab === 'traffic') loadStats();
       if (tab === 'ports') scanPorts();
       if (tab === 'nginx') loadNginx();
+      if (tab === 'routing') loadApps();
     });
 
     async function loadStats() {
@@ -467,8 +514,40 @@
     }
 
     async function loadHealthChecks() {
-      const checks = await fetchJSON('/api/health-checks');
+      document.getElementById('health-loading').classList.remove('hidden');
+      document.getElementById('health-apps-section').classList.add('hidden');
+      document.getElementById('health-manual-section').classList.add('hidden');
+
+      const [checks, appsData] = await Promise.all([
+        fetchJSON('/api/health-checks'),
+        fetchJSON('/api/apps')
+      ]);
+
+      // App health endpoints
+      const apps = appsData?.apps || {};
+      const appNames = Object.keys(apps).filter(n => apps[n].health_check && apps[n].enabled !== false);
+      if (appNames.length) {
+        const tbody = document.getElementById('health-apps-list');
+        tbody.innerHTML = appNames.map(name => {
+          const a = apps[name];
+          const url = `https://${a.hostname}${a.health_check}`;
+          return `<tr>
+            <td><strong>${name}</strong></td>
+            <td style="font-size:11px;color:var(--accent)">${a.hostname}</td>
+            <td style="font-family:monospace;font-size:11px">${a.health_check}</td>
+            <td><span class="badge badge-info">monitored</span></td>
+          </tr>`;
+        }).join('');
+        document.getElementById('health-apps-section').classList.remove('hidden');
+      }
+
+      // Manual health checks
       updateHealthUI(checks || []);
+      if (checks?.length) {
+        document.getElementById('health-manual-section').classList.remove('hidden');
+      }
+
+      document.getElementById('health-loading').classList.add('hidden');
     }
 
     async function addHealthCheck(e) {
@@ -501,10 +580,47 @@
     async function loadNginx() {
       const configs = await fetchJSON('/api/nginx/configs');
       if (!configs) return;
-      document.getElementById('nginx-list').innerHTML = configs.map(c => `<div class="card" style="margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong>${c.file}</strong><button class="btn btn-s btn-sm" onclick="navigator.clipboard.writeText(\`${c.content.replace(/`/g,'\\`')}\`)">Copy</button></div>
-        <pre style="background:var(--bg);padding:12px;border-radius:8px;font-size:11px;overflow-x:auto;color:var(--text2)">${c.content}</pre>
-      </div>`).join('');
+      document.getElementById('nginx-list').innerHTML = configs.map(c => {
+        const escaped = c.content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return `<div class="card" style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <strong>${c.file}</strong>
+            <div class="actions">
+              <button class="btn btn-s btn-sm" onclick="navigator.clipboard.writeText(\`${c.content.replace(/`/g,'\\`').replace(/\\/g,'\\\\')}\`)">📋 Copy</button>
+              <button class="btn btn-s btn-sm" onclick="toggleNginxEdit('${c.file}')">✏️ Edit</button>
+            </div>
+          </div>
+          <pre id="nginx-view-${c.file.replace(/[^a-zA-Z0-9]/g,'_')}" style="background:var(--bg);padding:12px;border-radius:8px;font-size:11px;overflow-x:auto;color:var(--text2);max-height:300px">${escaped}</pre>
+          <div id="nginx-edit-${c.file.replace(/[^a-zA-Z0-9]/g,'_')}" class="hidden" style="margin-top:8px">
+            <textarea id="nginx-textarea-${c.file.replace(/[^a-zA-Z0-9]/g,'_')}" class="input" style="width:100%;height:250px;font-family:monospace;font-size:11px;white-space:pre">${escaped}</textarea>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn btn-p btn-sm" onclick="saveNginxConfig('${c.file}')">💾 Save</button>
+              <button class="btn btn-s btn-sm" onclick="toggleNginxEdit('${c.file}')">Cancel</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function toggleNginxEdit(file) {
+      const safe = file.replace(/[^a-zA-Z0-9]/g,'_');
+      document.getElementById('nginx-view-' + safe).classList.toggle('hidden');
+      document.getElementById('nginx-edit-' + safe).classList.toggle('hidden');
+    }
+
+    async function saveNginxConfig(file) {
+      const safe = file.replace(/[^a-zA-Z0-9]/g,'_');
+      const content = document.getElementById('nginx-textarea-' + safe).value;
+      const res = await fetchJSON('/api/nginx/configs/' + encodeURIComponent(file), {method:'PUT', body:JSON.stringify({content})});
+      if (res?.success) { alert('Saved! Click "Reload Nginx" to apply.'); loadNginx(); }
+      else alert('Failed to save');
+    }
+
+    async function reloadNginx() {
+      if (!confirm('Reload nginx? This will apply all config changes.')) return;
+      const res = await fetchJSON('/api/nginx/reload', {method:'POST'});
+      if (res?.success) alert('Nginx reloaded successfully!');
+      else alert('Nginx reload failed: ' + (res?.error || 'unknown error'));
     }
 
     async function generateAndDeploy() {
@@ -580,6 +696,88 @@
     }
 
     function loadAll() { loadStats(); loadAccounts(); loadMappings(); }
+
+    // Routing/Apps Management
+    async function loadApps() {
+      const data = await fetchJSON('/api/apps');
+      if (!data) return;
+      const apps = data.apps || {};
+      const names = Object.keys(apps).sort();
+      document.getElementById('apps-list').innerHTML = names.length ? names.map(name => {
+        const a = apps[name];
+        const target = a.mode === 'socket' ? a.path : `${a.host || '127.0.0.1'}:${a.port || '?'}`;
+        return `<tr>
+          <td><strong>${name}</strong></td>
+          <td style="font-size:12px;color:var(--accent)">${a.hostname || '-'}</td>
+          <td><span class="badge badge-info">${a.mode || 'port'}</span></td>
+          <td style="font-family:monospace;font-size:11px">${target}</td>
+          <td style="font-size:11px;color:var(--text3)">${a.health_check || '-'}</td>
+          <td><span class="badge ${a.enabled !== false ? 'badge-ok' : 'badge-err'}">${a.enabled !== false ? 'Enabled' : 'Disabled'}</span></td>
+          <td>
+            <button class="btn btn-s btn-sm" onclick="editApp('${name}')">✏️</button>
+            <button class="btn btn-d btn-sm" onclick="deleteApp('${name}')">×</button>
+          </td>
+        </tr>`;
+      }).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text3)">No apps configured</td></tr>';
+    }
+
+    function showAddAppModal() {
+      document.getElementById('app-modal-title').textContent = 'Add App';
+      document.getElementById('app-edit-name').value = '';
+      document.getElementById('app-name').value = '';
+      document.getElementById('app-name').disabled = false;
+      document.getElementById('app-hostname').value = '';
+      document.getElementById('app-mode').value = 'port';
+      document.getElementById('app-port').value = '';
+      document.getElementById('app-host').value = '127.0.0.1';
+      document.getElementById('app-health').value = '/';
+      document.getElementById('app-enabled').checked = true;
+      showModal('app-modal');
+    }
+
+    function editApp(name) {
+      fetchJSON('/api/apps').then(data => {
+        const a = data?.apps?.[name];
+        if (!a) return;
+        document.getElementById('app-modal-title').textContent = 'Edit: ' + name;
+        document.getElementById('app-edit-name').value = name;
+        document.getElementById('app-name').value = name;
+        document.getElementById('app-name').disabled = true;
+        document.getElementById('app-hostname').value = a.hostname || '';
+        document.getElementById('app-mode').value = a.mode || 'port';
+        document.getElementById('app-port').value = a.port || '';
+        document.getElementById('app-host').value = a.host || '127.0.0.1';
+        document.getElementById('app-health').value = a.health_check || '/';
+        document.getElementById('app-enabled').checked = a.enabled !== false;
+        showModal('app-modal');
+      });
+    }
+
+    async function saveApp(e) {
+      e.preventDefault();
+      const editName = document.getElementById('app-edit-name').value;
+      const name = document.getElementById('app-name').value;
+      const mode = document.getElementById('app-mode').value;
+      const body = {
+        mode,
+        hostname: document.getElementById('app-hostname').value,
+        host: document.getElementById('app-host').value || '127.0.0.1',
+        health_check: document.getElementById('app-health').value || '/',
+        enabled: document.getElementById('app-enabled').checked
+      };
+      if (mode === 'port') body.port = parseInt(document.getElementById('app-port').value);
+      const endpoint = editName ? `/api/apps/${encodeURIComponent(editName)}` : `/api/apps/${encodeURIComponent(name)}`;
+      const res = await fetchJSON(endpoint, {method:'PUT', body:JSON.stringify(body)});
+      if (res?.success) { closeModal('app-modal'); loadApps(); }
+      else alert('Failed to save app');
+    }
+
+    async function deleteApp(name) {
+      if (!confirm(`Delete app "${name}"?`)) return;
+      const res = await fetchJSON(`/api/apps/${encodeURIComponent(name)}`, {method:'DELETE'});
+      if (res?.success) loadApps();
+      else alert('Failed to delete app');
+    }
 
     // i18n Language Support
     let currentLang = localStorage.getItem('cf-lang') || 'en';

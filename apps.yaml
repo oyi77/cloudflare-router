@@ -37,13 +37,29 @@ apps:
     health_check: /health
     enabled: true
 
+  1ai:
+    mode: port
+    hostname: 1ai.aitradepulse.com
+    host: 127.0.0.1
+    port: 4000
+    health_check: /
+    enabled: true
+
+  1ai-api:
+    mode: port
+    hostname: 1ai-api.aitradepulse.com
+    host: 127.0.0.1
+    port: 3002
+    health_check: /health
+    enabled: true
+
   cc:
     mode: port
     hostname: cc.aitradepulse.com
     host: 127.0.0.1
     port: 19527
     health_check: /
-    enabled: true
+    enabled: false
 
   cc2:
     mode: port
@@ -78,13 +94,13 @@ apps:
     health_check: /
     enabled: true
 
-  # CF-Router's own metrics server
+  # CF-Router's own dashboard server
   cf-router:
     mode: port
     hostname: cf-router.aitradepulse.com
     host: 127.0.0.1
-    port: 9090
-    health_check: /health
+    port: 7070
+    health_check: /api/status
     enabled: true
 
   # === SOCKET MODE ===

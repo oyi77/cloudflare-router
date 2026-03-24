@@ -349,6 +349,65 @@ app.get('/api/nginx/configs', (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+app.put('/api/nginx/configs/:file', (req, res) => {
+  try {
+    const sitesDir = path.join(CONFIG_DIR, 'nginx', 'sites');
+    const filePath = path.join(sitesDir, req.params.file);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Config not found' });
+    fs.writeFileSync(filePath, req.body.content);
+    res.json({ success: true, file: req.params.file });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/nginx/reload', (req, res) => {
+  try {
+    const nginxConf = path.join(CONFIG_DIR, 'nginx', 'nginx.conf');
+    execSync(`nginx -t -c ${nginxConf} 2>&1`, { encoding: 'utf8', timeout: 5000 });
+    execSync(`nginx -s reload -c ${nginxConf} 2>&1`, { encoding: 'utf8', timeout: 5000 });
+    res.json({ success: true, message: 'Nginx reloaded' });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
+
+app.get('/api/apps', (req, res) => {
+  try {
+    if (!fs.existsSync(APPS_YAML)) return res.json({ apps: {} });
+    const yaml = require('js-yaml');
+    const data = yaml.load(fs.readFileSync(APPS_YAML, 'utf8'));
+    res.json(data || { apps: {} });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.put('/api/apps', (req, res) => {
+  try {
+    const yaml = require('js-yaml');
+    fs.writeFileSync(APPS_YAML, yaml.dump(req.body, { lineWidth: -1 }));
+    res.json({ success: true });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.put('/api/apps/:name', (req, res) => {
+  try {
+    const yaml = require('js-yaml');
+    const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
+    data.apps = data.apps || {};
+    data.apps[req.params.name] = req.body;
+    fs.writeFileSync(APPS_YAML, yaml.dump(data, { lineWidth: -1 }));
+    res.json({ success: true, app: req.params.name });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.delete('/api/apps/:name', (req, res) => {
+  try {
+    const yaml = require('js-yaml');
+    const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
+    delete data.apps[req.params.name];
+    fs.writeFileSync(APPS_YAML, yaml.dump(data, { lineWidth: -1 }));
+    res.json({ success: true });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
 app.post('/api/health-check/add', (req, res) => {
   const { url, name, interval } = req.body;
   const id = Date.now().toString();
@@ -382,6 +441,34 @@ function executeHealthCheck(id) {
   setTimeout(() => executeHealthCheck(id), check.interval);
 }
 
+app.get('/api/ssl/all', async (req, res) => {
+  try {
+    // Collect domains from mappings, nginx configs, and apps.yaml
+    const domains = new Set();
+    try { getAllMappings().forEach(m => { if (m.full_domain) domains.add(m.full_domain); }); } catch (e) {}
+    try {
+      const sitesDir = path.join(CONFIG_DIR, 'nginx', 'sites');
+      if (fs.existsSync(sitesDir)) {
+        fs.readdirSync(sitesDir).filter(f => f.endsWith('.conf')).forEach(f => {
+          const content = fs.readFileSync(path.join(sitesDir, f), 'utf8');
+          const match = content.match(/server_name\s+([^;]+);/);
+          if (match) match[1].split(/\s+/).forEach(d => { if (d !== '_' && d.includes('.')) domains.add(d); });
+        });
+      }
+    } catch (e) {}
+    const results = [];
+    for (const domain of [...domains].slice(0, 30)) {
+      try {
+        const result = execSync(`echo | openssl s_client -connect ${domain}:443 -servername ${domain} 2>/dev/null | openssl x509 -noout -dates 2>/dev/null`, { encoding: 'utf8', timeout: 5000 });
+        const notAfter = result.split('\n').find(l => l.startsWith('notAfter='))?.split('=')[1];
+        const days = notAfter ? Math.floor((new Date(notAfter) - new Date()) / 86400000) : null;
+        results.push({ domain, expires: notAfter, daysUntilExpiry: days, status: days < 30 ? 'warning' : 'ok' });
+      } catch (e) { results.push({ domain, error: 'Could not fetch SSL info' }); }
+    }
+    res.json(results);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
 app.get('/api/ssl/:domain', async (req, res) => {
   try {
     const domain = req.params.domain;
@@ -399,23 +486,6 @@ app.get('/api/ssl/:domain', async (req, res) => {
       ssl.daysUntilExpiry = Math.floor((expiry - new Date()) / 86400000);
     }
     res.json({ domain, ...ssl });
-  } catch (error) { res.status(500).json({ error: error.message }); }
-});
-
-app.get('/api/ssl/all', async (req, res) => {
-  try {
-    const mappings = getAllMappings();
-    const domains = [...new Set(mappings.map(m => m.full_domain))];
-    const results = [];
-    for (const domain of domains.slice(0, 20)) {
-      try {
-        const result = execSync(`echo | openssl s_client -connect ${domain}:443 -servername ${domain} 2>/dev/null | openssl x509 -noout -dates 2>/dev/null`, { encoding: 'utf8', timeout: 5000 });
-        const notAfter = result.split('\n').find(l => l.startsWith('notAfter='))?.split('=')[1];
-        const days = notAfter ? Math.floor((new Date(notAfter) - new Date()) / 86400000) : null;
-        results.push({ domain, expires: notAfter, daysUntilExpiry: days, status: days < 30 ? 'warning' : 'ok' });
-      } catch (e) { results.push({ domain, error: 'Could not fetch SSL info' }); }
-    }
-    res.json(results);
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
@@ -514,18 +584,6 @@ app.post('/api/scan-ports', (req, res) => {
     });
     socket.connect(port, '127.0.0.1');
   });
-});
-
-app.get('/api/nginx/configs', (req, res) => {
-  try {
-    const sitesDir = path.join(CONFIG_DIR, 'nginx', 'sites');
-    if (!fs.existsSync(sitesDir)) return res.json([]);
-    const configs = fs.readdirSync(sitesDir).filter(f => f.endsWith('.conf')).map(f => ({
-      file: f,
-      content: fs.readFileSync(path.join(sitesDir, f), 'utf8')
-    }));
-    res.json(configs);
-  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 app.use('/', express.static(path.join(__dirname, 'dashboard')));
