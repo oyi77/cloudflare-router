@@ -394,6 +394,21 @@
                         value="6969"></div>
                   </div>
                   <div style="margin-bottom:16px;">
+                    <h3 style="font-size:14px;color:var(--text2);margin-bottom:12px;">Cloudflare Integration</h3>
+                    <div
+                      style="display:flex;align-items:center;gap:12px;background:rgba(255,255,255,0.05);padding:12px;border-radius:8px;">
+                      <label class="switch">
+                        <input type="checkbox" id="setting-cf-autosync">
+                        <span class="slider round"></span>
+                      </label>
+                      <div>
+                        <div style="font-weight:600;font-size:13px;">Auto-Sync Cloudflare</div>
+                        <div style="font-size:11px;color:var(--text3);">Automatically sync tunnel ingress and DNS on
+                          mapping changes</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style="margin-bottom:16px;">
                     <h3 style="font-size:14px;color:var(--text2);margin-bottom:12px;">Security</h3>
                     <div style="display:flex;gap:12px;flex-wrap:wrap;">
                       <span class="badge badge-ok">Rate Limiting: Enabled</span>
@@ -869,7 +884,7 @@
             <div class="actions" onclick="event.stopPropagation()"><button class="btn btn-s btn-sm" onclick="discoverZones('${acc.id}')">Discover</button><button class="btn btn-s btn-sm" onclick="showModal2('${acc.id}')">+ Zone</button><button class="btn btn-d btn-sm" onclick="removeAccount('${acc.id}')">×</button></div>
           </div>
           <div class="zone-list" id="zones-${idx}" style="display:none">
-            ${acc.zones.length ? acc.zones.map(z => `<div class="zone-item"><div class="zone-dot"></div><div class="zone-info"><div class="zone-domain">${z.domain}</div><div class="zone-meta">${z.zone_id}${z.tunnel_id ? ' • ' + z.tunnel_id.slice(0, 8) + '...' : ''}</div></div><div class="actions"><button class="btn btn-s btn-sm" onclick="showModal3('${acc.id}','${z.zone_id}')">+ Map</button><button class="btn btn-d btn-sm" onclick="removeZone('${acc.id}','${z.zone_id}')">×</button></div></div>`).join('') : '<p style="color:var(--text3);padding:8px 0;font-size:12px">No zones</p>'}
+            ${acc.zones.length ? acc.zones.map(z => `<div class="zone-item"><div class="zone-dot"></div><div class="zone-info"><div class="zone-domain">${z.domain}</div><div class="zone-meta">${z.zone_id}${z.tunnel_id ? ' • ' + z.tunnel_id.slice(0, 8) + '...' : ''}</div></div><div class="actions"><button class="btn btn-p btn-sm" title="Sync with Cloudflare" onclick="syncWithCloudflare('${acc.id}','${z.zone_id}')">🔄 Sync</button><button class="btn btn-s btn-sm" onclick="showModal3('${acc.id}','${z.zone_id}')">+ Map</button><button class="btn btn-d btn-sm" onclick="removeZone('${acc.id}','${z.zone_id}')">×</button></div></div>`).join('') : '<p style="color:var(--text3);padding:8px 0;font-size:12px">No zones</p>'}
           </div>
         </div>`).join('') + '</div>';
     }
@@ -1083,6 +1098,17 @@
       alert('All tunnels restarting...');
     }
 
+    async function syncWithCloudflare(accId, zoneId) {
+      if (!confirm('Synchronize all ingress rules and DNS records with Cloudflare?')) return;
+      const res = await fetchJSON('/api/cloudflare/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: accId, zone_id: zoneId })
+      });
+      if (res?.success) alert('Cloudflare Sync Successful!');
+      else alert('Sync Failed: ' + (res?.error || 'unknown'));
+    }
+
     async function exportConfig() {
       const data = await fetchJSON('/api/config/export');
       if (!data) return;
@@ -1253,8 +1279,32 @@
       document.getElementById('setting-server-port').value = settings.server?.port || 7070;
       document.getElementById('setting-server-host').value = settings.server?.host || '0.0.0.0';
       document.getElementById('setting-nginx-port').value = settings.nginx?.listen_port || 6969;
+      document.getElementById('setting-cf-autosync').checked = !!settings.cloudflare?.auto_sync;
 
       await loadSettingsSections();
+    }
+
+    async function saveSystemSettings(e) {
+      if (e) e.preventDefault();
+      const body = {
+        server: {
+          port: parseInt(document.getElementById('setting-server-port').value),
+          host: document.getElementById('setting-server-host').value
+        },
+        nginx: {
+          listen_port: parseInt(document.getElementById('setting-nginx-port').value)
+        },
+        cloudflare: {
+          auto_sync: document.getElementById('setting-cf-autosync').checked
+        }
+      };
+
+      const res = await fetchJSON('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify(body)
+      });
+      if (res?.success) showToast('System settings saved', 'success');
+      else showToast('Failed to save settings', 'error');
     }
 
     async function loadSettingsSections() {

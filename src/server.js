@@ -13,7 +13,7 @@ const tls = require('tls');
 const { v4: uuidv4 } = require('uuid');
 const { loadConfig, saveConfig, addAccount, removeAccount, addZoneToAccount, removeZoneFromAccount, addMapping, removeMapping, toggleMapping, getAllMappings, CONFIG_DIR, MAPPINGS_DIR } = require('./config');
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
-const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords, listTunnelsForAccount } = require('./cloudflare');
+const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords, listTunnelsForAccount, syncZoneCloudflare } = require('./cloudflare');
 const { rateLimitMiddleware, addToWhitelist, addToBlacklist, removeFromWhitelist, removeFromBlacklist, getIPLists, getRateLimitStats } = require('./middleware');
 const { createBackup, restoreBackup, listBackups, runHealthCheck, getHealthHistory, startAutoBackup, getBackupConfig, saveBackupConfig } = require('./backup');
 const { getAvailableLanguages, translate, i18nMiddleware } = require('./i18n');
@@ -359,15 +359,36 @@ app.post('/api/deploy', async (req, res) => {
     const allResults = [];
     for (const account of config.accounts || []) {
       for (const zone of account.zones || []) {
-        const { loadMappings } = require('./config');
-        const { mappings } = loadMappings(account.id, zone.zone_id);
-        const results = await deployMappingsForZone(account.id, zone.zone_id, zone.domain, zone.tunnel_id, mappings);
+        const results = await syncZoneCloudflare(account.id, zone.zone_id);
         allResults.push({ account: account.name, zone: zone.domain, results });
       }
     }
     res.json({ success: true, results: allResults });
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
+
+app.post('/api/cloudflare/sync', async (req, res) => {
+  try {
+    const { account_id, zone_id } = req.body;
+    if (!account_id || !zone_id) throw new APIError('Account ID and Zone ID required', 400);
+    const results = await syncZoneCloudflare(account_id, zone_id);
+    res.json({ success: true, results });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+async function triggerAutoSync(accountId, zoneId) {
+  try {
+    const config = loadConfig();
+    if (config.cloudflare?.auto_sync) {
+      console.log(`[AutoSync] Triggering sync for ${accountId}/${zoneId}`);
+      syncZoneCloudflare(accountId, zoneId).catch(err => {
+        console.error(`[AutoSync] Error syncing ${accountId}/${zoneId}:`, err.message);
+      });
+    }
+  } catch (err) {
+    console.error(`[AutoSync] Config load error:`, err.message);
+  }
+}
 
 app.get('/api/status', (req, res) => {
   try {
@@ -915,6 +936,7 @@ app.get('/api/settings', (req, res) => {
   res.json({
     server: config.server || { port: 7070, host: '0.0.0.0' },
     nginx: config.nginx || { listen_port: 6969 },
+    cloudflare: config.cloudflare || { auto_sync: false },
     features: {
       rate_limiting: true,
       validation: true,
@@ -927,10 +949,12 @@ app.put('/api/settings', [
   body('server.port').optional().isInt({ min: 1024, max: 65535 }),
   body('server.host').optional().isIP(),
   body('nginx.listen_port').optional().isInt({ min: 1, max: 65535 }),
+  body('cloudflare.auto_sync').optional().isBoolean(),
 ], handleValidationErrors, (req, res) => {
   const config = loadConfig();
   if (req.body.server) config.server = { ...config.server, ...req.body.server };
   if (req.body.nginx) config.nginx = { ...config.nginx, ...req.body.nginx };
+  if (req.body.cloudflare) config.cloudflare = { ...config.cloudflare, ...req.body.cloudflare };
   saveConfig(config);
   res.json({ success: true });
 });

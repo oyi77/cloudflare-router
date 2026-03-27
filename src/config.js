@@ -39,7 +39,8 @@ function loadConfig() {
     return {
       accounts: [],
       nginx: { listen_port: 6969, config_dir: path.join(CONFIG_DIR, 'nginx', 'sites') },
-      server: { port: 7070, host: '0.0.0.0' }
+      server: { port: 7070, host: '0.0.0.0' },
+      cloudflare: { auto_sync: false }
     };
   }
   return yaml.load(fs.readFileSync(CONFIG_FILE, 'utf8'));

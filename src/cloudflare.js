@@ -89,10 +89,20 @@ async function deployMappingsForZone(accountId, zoneId, domain, tunnelId, mappin
     try {
       const records = await listDNSRecords(accountId, zoneId);
       const name = mapping.subdomain ? `${mapping.subdomain}.${domain}` : domain;
+      const target = `${tunnelId}.cfargotunnel.com`;
       const existing = records.find(r => r.name === name);
 
       if (existing) {
-        results.push({ subdomain: mapping.subdomain, status: 'exists', record_id: existing.id });
+        if (existing.content === target && existing.proxied === true) {
+          results.push({ subdomain: mapping.subdomain, status: 'ok', record_id: existing.id });
+        } else {
+          // Update existing
+          const client = getClientForAccount(accountId);
+          await client.patch(`/zones/${zoneId}/dns_records/${existing.id}`, {
+            content: target, proxied: true
+          });
+          results.push({ subdomain: mapping.subdomain, status: 'updated', record_id: existing.id });
+        }
       } else {
         const record = await createDNSRecord(accountId, zoneId, mapping.subdomain, domain, tunnelId);
         results.push({ subdomain: mapping.subdomain, status: 'created', record_id: record.id });
@@ -135,11 +145,49 @@ async function getAccountIdFromZone(accountId) {
   return response.data.result.account.id;
 }
 
+async function updateTunnelIngress(accountId, tunnelId, domain, mappings) {
+  const client = getClientForAccount(accountId);
+  const accountIdCF = await getAccountIdFromZone(accountId);
+
+  const ingress = mappings
+    .filter(m => m.enabled !== false)
+    .map(m => ({
+      hostname: m.subdomain ? `${m.subdomain}.${domain}` : domain,
+      service: "http://localhost:6969"
+    }));
+
+  // Add default 404
+  ingress.push({ service: "http_status:404" });
+
+  const response = await client.put(`/accounts/${accountIdCF}/cfd_tunnel/${tunnelId}/configurations`, {
+    config: { ingress }
+  });
+  return response.data.result;
+}
+
+async function syncZoneCloudflare(accountId, zoneId) {
+  const config = loadConfig();
+  const account = config.accounts.find(a => a.id === accountId);
+  const zone = account.zones.find(z => z.zone_id === zoneId);
+  const { loadMappings } = require('./config');
+  const { mappings } = loadMappings(accountId, zoneId);
+
+  const results = { dns: [], tunnel: null };
+
+  // 1. Sync DNS
+  results.dns = await deployMappingsForZone(accountId, zoneId, zone.domain, zone.tunnel_id, mappings);
+
+  // 2. Sync Tunnel Ingress
+  results.tunnel = await updateTunnelIngress(accountId, zone.tunnel_id, zone.domain, mappings);
+
+  return results;
+}
+
 module.exports = {
   getClientForAccount, getClientForZone,
   listDNSRecords, createDNSRecord, deleteDNSRecord,
   getZoneInfo, listZonesForAccount,
   verifyAccount, discoverZones,
-  deployMappingsForZone,
+  deployMappingsForZone, updateTunnelIngress, syncZoneCloudflare,
   listTunnelsForAccount, getAccountIdFromZone
 };
