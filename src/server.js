@@ -19,6 +19,8 @@ const { createBackup, restoreBackup, listBackups, runHealthCheck, getHealthHisto
 const { getAvailableLanguages, translate, i18nMiddleware } = require('./i18n');
 const { requestLoggerMiddleware, getAccessLogs, getErrorLogs, clearLogs, getLogStats } = require('./logger');
 const { registerService, getPort, releaseService, listServices, updateService } = require('./portless');
+const { getErrorPage, saveErrorPage, listErrorPages, initializeDefaultPages } = require('./error-pages');
+
 
 const app = express();
 
@@ -26,8 +28,12 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "cdnjs.cloudflare.com", "fonts.googleapis.com"],
+      styleSrcAttr: ["'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "cdnjs.cloudflare.com"],
+      scriptSrcAttr: ["'unsafe-inline'"],
+      fontSrc: ["'self'", "cdnjs.cloudflare.com", "fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "cdnjs.cloudflare.com"],
       connectSrc: ["'self'", "ws:", "wss:"],
     },
   },
@@ -115,13 +121,33 @@ app.use('/api', apiRateLimit);
 
 app.post('/api/auth/login', authRateLimit, (req, res) => {
   const { password } = req.body;
-  if (!DASHBOARD_PASSWORD) return res.json({ success: true, token: '' });
-  if (password === DASHBOARD_PASSWORD) return res.json({ success: true, token: DASHBOARD_PASSWORD });
-  res.status(401).json({ error: 'Invalid password' });
+  const ip = req.headers['x-forwarded-for'] || req.ip || '-';
+
+  if (!DASHBOARD_PASSWORD) {
+    console.log(`[AUTH] Login success (no password set) from ${ip}`);
+    return res.json({ success: true, token: '' });
+  }
+
+  if (!password) {
+    console.warn(`[AUTH] Login failed: Password missing from ${ip}`);
+    return res.status(400).json({ error: 'Password is required', code: 'password_missing' });
+  }
+
+  if (password === DASHBOARD_PASSWORD) {
+    console.log(`[AUTH] Login success from ${ip}`);
+    return res.json({ success: true, token: DASHBOARD_PASSWORD });
+  }
+
+  console.warn(`[AUTH] Login failed: Invalid password from ${ip}`);
+  res.status(401).json({ error: 'Invalid password', code: 'invalid_credentials' });
 });
 
 app.get('/api/auth/check', (req, res) => {
-  res.json({ auth_required: !!DASHBOARD_PASSWORD || !!AUTH_TOKEN });
+  res.json({
+    auth_required: !!DASHBOARD_PASSWORD || !!AUTH_TOKEN,
+    setup_complete: !!DASHBOARD_PASSWORD,
+    version: require('../package.json').version
+  });
 });
 
 app.use('/api', (req, res, next) => {
@@ -575,7 +601,7 @@ app.get('/api/ssl/all', async (req, res) => {
   try {
     // Collect domains from mappings, nginx configs, and apps.yaml
     const domains = new Set();
-    try { getAllMappings().forEach(m => { if (m.full_domain) domains.add(m.full_domain); }); } catch (e) {}
+    try { getAllMappings().forEach(m => { if (m.full_domain) domains.add(m.full_domain); }); } catch (e) { }
     try {
       const sitesDir = path.join(CONFIG_DIR, 'nginx', 'sites');
       if (fs.existsSync(sitesDir)) {
@@ -585,7 +611,7 @@ app.get('/api/ssl/all', async (req, res) => {
           if (match) match[1].split(/\s+/).forEach(d => { if (d !== '_' && d.includes('.')) domains.add(d); });
         });
       }
-    } catch (e) {}
+    } catch (e) { }
     const results = [];
     for (const domain of [...domains].slice(0, 30)) {
       try {
@@ -687,7 +713,7 @@ app.delete('/api/webhooks/:id', (req, res) => {
 
 function sendWebhook(message, event = 'alert') {
   if (!WEBHOOK_URL) return;
-  exec(`curl -s -X POST -H "Content-Type: application/json" -d '{"text":"${message}","event":"${event}"}' "${WEBHOOK_URL}"`, () => {});
+  exec(`curl -s -X POST -H "Content-Type: application/json" -d '{"text":"${message}","event":"${event}"}' "${WEBHOOK_URL}"`, () => { });
 }
 
 app.post('/api/scan-ports', (req, res) => {
@@ -796,15 +822,15 @@ app.post('/api/apps/:name/start', [param('name').trim()], handleValidationErrors
   const yaml = require('js-yaml');
   const appsFile = path.join(CONFIG_DIR, 'apps.yml');
   if (!fs.existsSync(appsFile)) throw new APIError('No apps configured', 404, 'not_found');
-  
+
   const data = yaml.load(fs.readFileSync(appsFile, 'utf8'));
   const app = data.apps?.[req.params.name];
   if (!app) throw new APIError('App not found', 404, 'not_found');
-  
+
   if (APP_PROCESSES.has(req.params.name)) {
     return res.json({ success: true, message: 'App already running', pid: APP_PROCESSES.get(req.params.name).pid });
   }
-  
+
   let command;
   if (app.command) {
     command = app.command;
@@ -814,21 +840,21 @@ app.post('/api/apps/:name/start', [param('name').trim()], handleValidationErrors
   } else {
     command = app.script || 'npm start';
   }
-  
+
   const cwd = app.cwd || path.join(process.env.HOME, 'apps', req.params.name);
   const child = exec(command, { cwd, env: { ...process.env, ...app.env } });
-  
+
   APP_PROCESSES.set(req.params.name, {
     pid: child.pid,
     started_at: new Date().toISOString(),
     command,
   });
-  
+
   child.on('exit', (code) => {
     APP_PROCESSES.delete(req.params.name);
     console.log(`App ${req.params.name} exited with code ${code}`);
   });
-  
+
   res.json({ success: true, pid: child.pid });
 }));
 
@@ -837,7 +863,7 @@ app.post('/api/apps/:name/stop', [param('name').trim()], handleValidationErrors,
   if (!proc) {
     return res.status(400).json({ error: 'App not running', code: 'not_running' });
   }
-  
+
   try {
     process.kill(proc.pid, 'SIGTERM');
     APP_PROCESSES.delete(req.params.name);
@@ -860,14 +886,29 @@ app.get('/api/apps/:name/status', [param('name').trim()], handleValidationErrors
 app.get('/api/apps/:name/logs', [param('name').trim(), query('lines').optional().isInt({ min: 1, max: 1000 }).toInt()], handleValidationErrors, (req, res) => {
   const lines = req.query.lines || 100;
   const logFile = path.join(CONFIG_DIR, 'logs', `app-${req.params.name}.log`);
-  
+
   if (!fs.existsSync(logFile)) {
     return res.json({ logs: [] });
   }
-  
+
   const logs = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).slice(-lines);
   res.json({ logs });
 });
+
+app.get('/api/error-pages', asyncHandler(async (req, res) => {
+  res.json(listErrorPages());
+}));
+
+app.get('/api/error-pages/:code', asyncHandler(async (req, res) => {
+  res.json({ content: getErrorPage(req.params.code) });
+}));
+
+app.put('/api/error-pages/:code', [
+  body('content').isString().notEmpty().withMessage('Content is required'),
+], handleValidationErrors, asyncHandler(async (req, res) => {
+  saveErrorPage(req.params.code, req.body.content);
+  res.json({ success: true });
+}));
 
 app.get('/api/settings', (req, res) => {
   const config = loadConfig();
@@ -930,6 +971,7 @@ function startServer(port = 7070) {
   return new Promise((resolve) => {
     const server = http.createServer(app);
     setupWebSocket(server);
+    initializeDefaultPages();
     server.listen(port, '0.0.0.0', () => {
       console.log(`Dashboard: http://localhost:${port}`);
       console.log(`WebSocket: ws://localhost:${port}`);
@@ -940,3 +982,7 @@ function startServer(port = 7070) {
 }
 
 module.exports = { app, startServer };
+
+if (require.main === module) {
+  startServer(process.env.PORT || 7070);
+}

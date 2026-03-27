@@ -1,148 +1,98 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cloudflare Router</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <style>
-    :root { --bg:#0a0a0a; --card:#171717; --border:#262626; --text:#e5e5e5; --text2:#a3a3a3; --text3:#737373; --accent:#f97316; --accent2:#ea580c; --green:#4ade80; --red:#f87171; --yellow:#fbbf24; --blue:#60a5fa; }
-    [data-theme="light"] { --bg:#f5f5f5; --card:#fff; --border:#e5e7eb; --text:#1f2937; --text2:#4b5563; --text3:#9ca3af; --accent:#f97316; --accent2:#ea580c; --green:#16a34a; --red:#dc2626; --yellow:#ca8a04; --blue:#2563eb; }
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); transition:background .3s,color .3s; }
-    .container { max-width:1400px; margin:0 auto; padding:24px; }
-    header { background:linear-gradient(135deg,var(--accent) 0%,var(--accent2) 100%); padding:32px 0; margin-bottom:24px; }
-    header .container { display:flex; justify-content:space-between; align-items:center; }
-    header h1 { font-size:28px; font-weight:700; color:#fff; }
-    header p { color:rgba(255,255,255,0.8); margin-top:2px; font-size:14px; }
-    .header-actions { display:flex; gap:8px; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin-bottom:20px; }
-    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; }
-    .card h3 { font-size:12px; color:var(--text3); margin-bottom:6px; text-transform:uppercase; }
-    .stat { font-size:28px; font-weight:700; color:var(--text); }
-    table { width:100%; border-collapse:collapse; }
-    th { text-align:left; padding:10px 14px; font-size:11px; text-transform:uppercase; color:var(--text3); border-bottom:1px solid var(--border); }
-    td { padding:10px 14px; border-bottom:1px solid var(--border); font-size:13px; }
-    .badge { padding:3px 8px; border-radius:16px; font-size:10px; font-weight:600; }
-    .badge-ok { background:#052e16; color:var(--green); } [data-theme="light"] .badge-ok { background:#dcfce7; }
-    .badge-warn { background:#422006; color:var(--yellow); } [data-theme="light"] .badge-warn { background:#fef3c7; }
-    .badge-err { background:#450a0a; color:var(--red); } [data-theme="light"] .badge-err { background:#fee2e2; }
-    .badge-info { background:#172554; color:var(--blue); } [data-theme="light"] .badge-info { background:#dbeafe; }
-    .btn { padding:6px 14px; border:none; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; }
-    .btn-p { background:var(--accent); color:#fff; } .btn-p:hover { background:var(--accent2); }
-    .btn-s { background:var(--border); color:var(--text); } .btn-s:hover { background:#333; }
-    .btn-d { background:#7f1d1d; color:#fca5a5; } .btn-d:hover { background:#991b1b; }
-    .btn-sm { padding:4px 10px; font-size:11px; }
-    .input { width:100%; padding:8px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px; }
-    .input:focus { outline:none; border-color:var(--accent); }
-    label { display:block; font-size:12px; color:var(--text2); margin-bottom:4px; }
-    .tabs { display:flex; gap:4px; margin-bottom:20px; flex-wrap:wrap; }
-    .tab { padding:6px 14px; border-radius:6px; cursor:pointer; font-size:13px; background:var(--border); color:var(--text2); transition:all .15s; }
-    .tab:hover { color:var(--text); } .tab.active { background:var(--accent); color:#fff; }
-    .hidden { display:none !important; }
-    .account-tree { margin-bottom:12px; }
-    .account-item { background:var(--card); border:1px solid var(--border); border-radius:10px; margin-bottom:6px; overflow:hidden; }
-    .account-header { display:flex; align-items:center; padding:12px 16px; cursor:pointer; user-select:none; }
-    .account-header:hover { background:var(--border); }
-    .chevron { width:16px; height:16px; margin-right:10px; transition:transform .2s; color:var(--text3); }
-    .chevron.open { transform:rotate(90deg); }
-    .account-info { flex:1; }
-    .account-name { font-size:14px; font-weight:600; }
-    .account-meta { font-size:11px; color:var(--text3); }
-    .zone-list { border-top:1px solid var(--border); padding:0 16px 8px 42px; }
-    .zone-item { display:flex; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); }
-    .zone-item:last-child { border-bottom:none; }
-    .zone-dot { width:6px; height:6px; border-radius:50%; background:var(--green); margin-right:10px; }
-    .zone-info { flex:1; }
-    .zone-domain { font-size:13px; color:var(--accent); font-weight:500; }
-    .zone-meta { font-size:10px; color:var(--text3); }
-    .actions { display:flex; gap:6px; flex-wrap:wrap; }
-    .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.6); z-index:1000; }
-    .modal-box { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:24px; max-width:480px; margin:60px auto; }
-    .modal-hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
-    .modal-hdr h2 { font-size:18px; }
-    .close-btn { background:none; border:none; font-size:22px; cursor:pointer; color:var(--text3); }
-    .login-box { max-width:380px; margin:80px auto; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:32px; text-align:center; }
-    .login-box h2 { margin-bottom:20px; }
-    .login-box .input { margin-bottom:12px; }
-    .chart-container { height:120px; display:flex; align-items:flex-end; gap:4px; padding:8px 0; }
-    .chart-bar { flex:1; background:var(--accent); border-radius:3px 3px 0 0; min-height:4px; transition:height .3s; opacity:0.8; }
-    .chart-bar:hover { opacity:1; }
-    .health-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
-    .health-dot.healthy { background:var(--green); } .health-dot.unhealthy { background:var(--red); } .health-dot.pending { background:var(--yellow); }
-    .theme-toggle { background:var(--border); border:none; color:var(--text); width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:16px; }
-    .toast-container { position:fixed; top:20px; right:20px; z-index:9999; display:flex; flex-direction:column; gap:8px; }
-    .toast { padding:12px 16px; border-radius:8px; font-size:13px; font-weight:500; animation:slideIn 0.3s ease; max-width:320px; word-break:break-word; box-shadow:0 4px 12px rgba(0,0,0,0.3); }
-    .toast.success { background:#052e16; color:var(--green); border:1px solid var(--green); }
-    [data-theme="light"] .toast.success { background:#dcfce7; }
-    .toast.error { background:#450a0a; color:var(--red); border:1px solid var(--red); }
-    [data-theme="light"] .toast.error { background:#fee2e2; }
-    .toast.warning { background:#422006; color:var(--yellow); border:1px solid var(--yellow); }
-    [data-theme="light"] .toast.warning { background:#fef3c7; }
-    .toast.info { background:#172554; color:var(--blue); border:1px solid var(--blue); }
-    [data-theme="light"] .toast.info { background:#dbeafe; }
-    @keyframes slideIn { from { transform:translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
-    @keyframes fadeOut { from { opacity:1; } to { opacity:0; } }
-    .toast.hiding { animation:fadeOut 0.3s ease forwards; }
-    .loading-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10000; display:none; justify-content:center; align-items:center; }
-    .loading-overlay.active { display:flex; }
-    .loading-spinner { width:48px; height:48px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; }
-    @keyframes spin { to { transform:rotate(360deg); } }
-    .btn.loading { position:relative; pointer-events:none; opacity:0.7; }
-    .btn.loading::after { content:""; position:absolute; width:14px; height:14px; border:2px solid transparent; border-top-color:currentColor; border-radius:50%; animation:spin 0.8s linear infinite; margin-left:8px; }
-  </style>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
   <div class="toast-container" id="toast-container"></div>
-  <div class="loading-overlay" id="loading-overlay"><div class="loading-spinner"></div></div>
-  <div id="login-screen">
-    <header><div class="container" style="text-align:center"><h1>Cloudflare Router</h1><p>Enter password to continue</p></div></header>
-    <div class="login-box">
-      <h2>Dashboard Login</h2>
+  <div class="loading-overlay" id="loading-overlay">
+    <div class="loading-spinner"></div>
+  </div>
+  <div id="login-screen"
+    style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at top right, rgba(var(--accent-rgb), 0.05), transparent), var(--bg);">
+    <div class="card login-box" style="max-width:400px;width:100%;padding:2.5rem;">
+      <div style="font-size:3rem;margin-bottom:1.5rem;">☁️</div>
+      <h2 style="margin-bottom:0.5rem;font-size:1.5rem;">Dashboard Login</h2>
+      <p style="color:var(--text3);margin-bottom:2rem;font-size:0.875rem;">Secure infrastructure management</p>
       <form onsubmit="login(event)">
-        <input class="input" id="login-password" type="password" placeholder="Password" required>
-        <button type="submit" class="btn btn-p" style="width:100%;padding:10px">Login</button>
+        <div style="margin-bottom:1.25rem;text-align:left;">
+          <label>Administrator Password</label>
+          <input class="input" id="login-password" type="password" placeholder="••••••••" required autofocus>
+        </div>
+        <button type="submit" class="btn btn-p" style="width:100%;padding:0.875rem;">Unlock Dashboard</button>
       </form>
-      <p id="login-error" style="color:var(--red);margin-top:10px;display:none">Invalid password</p>
+      <p id="login-error" style="color:var(--red);margin-top:1.25rem;display:none;font-size:0.875rem;font-weight:600;">
+      </p>
     </div>
   </div>
 
   <div id="dashboard-screen" class="hidden">
     <header>
       <div class="container">
-        <div><h1>☁️ <span data-i18n="title">Cloudflare Router</span></h1><p data-i18n="subtitle">Manage accounts, domains, DNS, tunnels & monitoring</p></div>
+        <div>
+          <h1>Cloudflare Router</h1>
+          <p>Cloud-native Infrastructure Orchestrator</p>
+        </div>
         <div class="header-actions">
-          <select id="lang-selector" class="input" style="width:auto;padding:4px 8px" onchange="changeLanguage(this.value)"></select>
-          <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌓</button>
-          <button class="btn btn-s" onclick="exportConfig()" data-i18n="export">📥 Export</button>
-          <button class="btn btn-s" onclick="document.getElementById('import-file').click()" data-i18n="import">📤 Import</button>
+          <select id="lang-selector" class="input" style="width:auto;height:40px;padding:4px 12px;margin-right:8px;"
+            onchange="changeLanguage(this.value)"></select>
+          <button class="btn btn-s" onclick="toggleTheme()" title="Toggle theme">🌓</button>
+          <button class="btn btn-s" onclick="exportConfig()">📥 Export</button>
+          <button class="btn btn-s" onclick="document.getElementById('import-file').click()">📤 Import</button>
           <input type="file" id="import-file" style="display:none" accept=".json" onchange="importConfig(event)">
-          <button class="btn btn-s" onclick="logout()" data-i18n="logout">Logout</button>
+          <button class="btn btn-p" onclick="logout()">Logout</button>
         </div>
       </div>
     </header>
     <div class="container">
       <div class="grid" id="stats">
-        <div class="card"><h3 data-i18n="accounts">Accounts</h3><div class="stat" id="s-acc">-</div></div>
-        <div class="card"><h3 data-i18n="domains">Zones</h3><div class="stat" id="s-zones">-</div></div>
-        <div class="card"><h3 data-i18n="mappings">Mappings</h3><div class="stat" id="s-map">-</div></div>
-        <div class="card"><h3 data-i18n="requests">Requests</h3><div class="stat" id="s-req">-</div></div>
-        <div class="card"><h3>Nginx</h3><div class="stat" id="s-nginx" style="font-size:16px">-</div></div>
-        <div class="card"><h3>Uptime</h3><div class="stat" id="s-uptime" style="font-size:16px">-</div></div>
+        <div class="card">
+          <h3>Active Accounts</h3>
+          <div class="stat" id="s-acc">0</div>
+        </div>
+        <div class="card">
+          <h3>Cloudflare Zones</h3>
+          <div class="stat" id="s-zones">0</div>
+        </div>
+        <div class="card">
+          <h3>Active Mappings</h3>
+          <div class="stat" id="s-map">0</div>
+        </div>
+        <div class="card">
+          <h3>Total Requests</h3>
+          <div class="stat" id="s-req">0</div>
+        </div>
+        <div class="card">
+          <h3>Nginx Status</h3>
+          <div class="stat" id="s-nginx" style="font-size:18px">Checking...</div>
+        </div>
+        <div class="card">
+          <h3>System Uptime</h3>
+          <div class="stat" id="s-uptime" style="font-size:18px">-</div>
+        </div>
       </div>
       <div class="tabs" id="main-tabs">
         <div class="tab active" data-tab="accounts" data-i18n="accounts">Accounts</div>
         <div class="tab" data-tab="domains" data-i18n="domains">Domains</div>
         <div class="tab" data-tab="mappings" data-i18n="mappings">Mappings</div>
-        <div class="tab" data-tab="dns" data-i18n="dns">DNS</div>
+        <div class="tab" data-tab="dns" data-i18n="dns">DNS Records</div>
         <div class="tab" data-tab="tunnels" data-i18n="tunnels">Tunnels</div>
-        <div class="tab" data-tab="ssl" data-i18n="ssl">SSL</div>
+        <div class="tab" data-tab="ssl" data-i18n="ssl">SSL Certs</div>
         <div class="tab" data-tab="health" data-i18n="health">Health</div>
         <div class="tab" data-tab="traffic" data-i18n="traffic">Traffic</div>
-        <div class="tab" data-tab="ports" data-i18n="ports">Ports</div>
-        <div class="tab" data-tab="nginx" data-i18n="nginx">Nginx</div>
-        <div class="tab" data-tab="routing" data-i18n="routing">Routing</div>
-        <div class="tab" data-tab="settings">Settings</div>
+        <div class="tab" data-tab="ports" data-i18n="ports">Port Scan</div>
+        <div class="tab" data-tab="nginx" data-i18n="nginx">Nginx Config</div>
+        <div class="tab" data-tab="routing" data-i18n="routing">App Routing</div>
+        <div class="tab" data-tab="settings" data-i18n="settings">Settings</div>
       </div>
       <div id="tab-accounts">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -153,75 +103,213 @@
             <button class="btn btn-s" onclick="restartAllTunnels()">🔄 Restart Tunnels</button>
           </div>
         </div>
-        <div id="accounts-list"><div style="text-align:center;padding:32px;color:var(--text3)">Loading...</div></div>
+        <div id="accounts-list">
+          <div style="text-align:center;padding:32px;color:var(--text3)">Loading...</div>
+        </div>
       </div>
       <div id="tab-domains" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <h2 style="font-size:16px">All Domains</h2>
           <button class="btn btn-s" onclick="loadDomains()">Refresh</button>
         </div>
-        <div class="card"><table><thead><tr><th>Domain</th><th>Zone ID</th><th>Tunnel</th><th>Mappings</th><th>Account</th><th>Actions</th></tr></thead>
-        <tbody id="domains-list"><tr><td colspan="6" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th data-i18n="domain">Domain</th>
+                <th data-i18n="zone_id">Zone ID</th>
+                <th data-i18n="tunnel">Tunnel</th>
+                <th data-i18n="mappings">Mappings</th>
+                <th data-i18n="account">Account</th>
+                <th data-i18n="actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="domains-list">
+              <tr>
+                <td colspan="6" style="text-align:center;color:var(--text3)" data-i18n="loading">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
       <div id="tab-mappings" class="hidden">
-        <div class="card"><table><thead><tr><th>Subdomain</th><th>Port</th><th>Account</th><th>Zone</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody id="all-mappings"><tr><td colspan="6" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th data-i18n="subdomain">Subdomain</th>
+                <th data-i18n="port">Port</th>
+                <th data-i18n="account">Account</th>
+                <th data-i18n="zone">Zone</th>
+                <th data-i18n="status">Status</th>
+                <th data-i18n="actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="all-mappings">
+              <tr>
+                <td colspan="6" style="text-align:center;color:var(--text3)" data-i18n="loading">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
       <div id="tab-dns" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <h2 style="font-size:16px">DNS Records</h2><button class="btn btn-s" onclick="loadDNS()">Refresh</button>
         </div>
-        <div class="card"><table><thead><tr><th>Name</th><th>Type</th><th>Content</th><th>Proxied</th><th>Account</th><th>Zone</th></tr></thead>
-        <tbody id="dns-list"><tr><td colspan="6" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th data-i18n="name">Name</th>
+                <th data-i18n="type">Type</th>
+                <th data-i18n="content">Content</th>
+                <th data-i18n="proxied">Proxied</th>
+                <th data-i18n="account">Account</th>
+                <th data-i18n="zone">Zone</th>
+              </tr>
+            </thead>
+            <tbody id="dns-list">
+              <tr>
+                <td colspan="6" style="text-align:center;color:var(--text3)" data-i18n="loading">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
       <div id="tab-tunnels" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <h2 style="font-size:16px">Tunnels</h2><button class="btn btn-s" onclick="loadTunnels()">Refresh</button>
         </div>
-        <div class="card"><table><thead><tr><th>Name</th><th>ID</th><th>Status</th><th>Type</th><th>Account</th><th>Created</th><th>Actions</th></tr></thead>
-        <tbody id="tunnels-list"><tr><td colspan="7" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th data-i18n="name">Name</th>
+                <th data-i18n="id">ID</th>
+                <th data-i18n="status">Status</th>
+                <th data-i18n="type">Type</th>
+                <th data-i18n="account">Account</th>
+                <th data-i18n="created">Created</th>
+                <th data-i18n="actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="tunnels-list">
+              <tr>
+                <td colspan="7" style="text-align:center;color:var(--text3)" data-i18n="loading">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
       <div id="tab-ssl" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <h2 style="font-size:16px">SSL Certificates</h2><button class="btn btn-s" onclick="loadSSL()">Check All</button>
+          <h2 style="font-size:16px">SSL Certificates</h2><button class="btn btn-s" onclick="loadSSL()">Check
+            All</button>
         </div>
-        <div class="card"><table><thead><tr><th>Domain</th><th>Expires</th><th>Days Left</th><th>Status</th></tr></thead>
-        <tbody id="ssl-list"><tr><td colspan="4" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th data-i18n="domain">Domain</th>
+                <th data-i18n="expires">Expires</th>
+                <th data-i18n="days_left">Days Left</th>
+                <th data-i18n="status">Status</th>
+              </tr>
+            </thead>
+            <tbody id="ssl-list">
+              <tr>
+                <td colspan="4" style="text-align:center;color:var(--text3)" data-i18n="loading">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
       <div id="tab-health" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <h2 style="font-size:16px">Health Checks</h2><button class="btn btn-p" onclick="showModal('add-health-modal')">+ Add Check</button>
+          <h2 style="font-size:16px">Health Checks</h2><button class="btn btn-p"
+            onclick="showModal('add-health-modal')">+ Add Check</button>
         </div>
         <div id="health-loading" style="text-align:center;padding:32px;color:var(--text3)">Loading...</div>
         <div id="health-apps-section" class="hidden" style="margin-bottom:16px">
           <h3 style="font-size:13px;color:var(--text2);margin-bottom:8px">App Health Endpoints</h3>
-          <div class="card"><table><thead><tr><th>App</th><th>Hostname</th><th>Health Path</th><th>Status</th></tr></thead>
-          <tbody id="health-apps-list"></tbody></table></div>
+          <div class="card">
+            <table>
+              <thead>
+                <tr>
+                  <th>App</th>
+                  <th>Hostname</th>
+                  <th>Health Path</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="health-apps-list"></tbody>
+            </table>
+          </div>
         </div>
         <div id="health-manual-section" class="hidden">
-          <h3 style="font-size:13px;color:var(--text2);margin-bottom:8px">Custom Health Checks</h3>
-          <div class="card"><table><thead><tr><th>Name</th><th>URL</th><th>Status</th><th>Latency</th><th>Last Check</th><th>Actions</th></tr></thead>
-          <tbody id="health-list"></tbody></table></div>
+          <h3 style="font-size:14px;margin-bottom:8px" data-i18n="manual_checks">Custom Health Checks</h3>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="name">Name</th>
+                  <th data-i18n="url">URL</th>
+                  <th data-i18n="status">Status</th>
+                  <th data-i18n="latency">Latency</th>
+                  <th data-i18n="last_check">Last Check</th>
+                  <th data-i18n="actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="health-list"></tbody>
+            </table>
+          </div>
         </div>
       </div>
       <div id="tab-traffic" class="hidden">
         <div class="card" style="margin-bottom:16px">
           <h3 style="margin-bottom:12px">Traffic (Last 7 Days)</h3>
           <div class="chart-container" id="traffic-chart"></div>
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3)"><span>7 days ago</span><span>Today</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3)"><span>7 days
+              ago</span><span>Today</span></div>
         </div>
         <div class="grid">
-          <div class="card"><h3>Total Requests</h3><div class="stat" id="traffic-total">-</div></div>
-          <div class="card"><h3>Success</h3><div class="stat" style="color:var(--green)" id="traffic-success">-</div></div>
-          <div class="card"><h3>Errors</h3><div class="stat" style="color:var(--red)" id="traffic-errors">-</div></div>
+          <div class="card">
+            <h3>Total Requests</h3>
+            <div class="stat" id="traffic-total">-</div>
+          </div>
+          <div class="card">
+            <h3>Success</h3>
+            <div class="stat" style="color:var(--green)" id="traffic-success">-</div>
+          </div>
+          <div class="card">
+            <h3>Errors</h3>
+            <div class="stat" style="color:var(--red)" id="traffic-errors">-</div>
+          </div>
         </div>
       </div>
       <div id="tab-ports" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <h2 style="font-size:16px">Port Scanner</h2><button class="btn btn-p" onclick="scanPorts()">Scan Ports</button>
+          <h2 style="font-size:16px">Port Scanner</h2><button class="btn btn-p" onclick="scanPorts()">Scan
+            Ports</button>
         </div>
-        <div class="card"><table><thead><tr><th>Port</th><th>Status</th><th>Service</th></tr></thead>
-        <tbody id="ports-list"><tr><td colspan="3" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th data-i18n="port">Port</th>
+                <th data-i18n="status">Status</th>
+                <th data-i18n="service">Service</th>
+              </tr>
+            </thead>
+            <tbody id="ports-list">
+              <tr>
+                <td colspan="3" style="text-align:center;color:var(--text3)" data-i18n="not_scanned">Not scanned yet
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
       <div id="tab-nginx" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -231,7 +319,9 @@
             <button class="btn btn-p" onclick="reloadNginx()">🔄 Reload Nginx</button>
           </div>
         </div>
-        <div id="nginx-list"><div style="text-align:center;padding:32px;color:var(--text3)">Loading...</div></div>
+        <div id="nginx-list">
+          <div style="text-align:center;padding:32px;color:var(--text3)">Loading...</div>
+        </div>
       </div>
       <div id="tab-routing" class="hidden">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -241,20 +331,47 @@
             <button class="btn btn-p" onclick="showAddAppModal()">+ Add App</button>
           </div>
         </div>
-        <div class="card"><table><thead><tr><th>App Name</th><th>Hostname</th><th>Mode</th><th>Target</th><th>Health Check</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody id="apps-list"><tr><td colspan="7" style="text-align:center;color:var(--text3)">Loading...</td></tr></tbody></table></div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th data-i18n="app_name">App Name</th>
+                <th data-i18n="hostname">Hostname</th>
+                <th data-i18n="mode">Mode</th>
+                <th data-i18n="target">Target</th>
+                <th data-i18n="health">Health</th>
+                <th data-i18n="status">Status</th>
+                <th data-i18n="actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="apps-list">
+              <tr>
+                <td colspan="7" style="text-align:center;color:var(--text3)" data-i18n="loading">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div id="tab-settings" class="hidden">
         <div class="settings-grid" style="display:grid;grid-template-columns:250px 1fr;gap:20px;align-items:start;">
           <div class="settings-sidebar">
             <div class="card" style="padding:0;overflow:hidden;">
-              <div class="settings-nav-item active" onclick="showSettingsSection('general')" data-section="general">General</div>
-              <div class="settings-nav-item" onclick="showSettingsSection('accounts')" data-section="accounts">Cloudflare Accounts</div>
-              <div class="settings-nav-item" onclick="showSettingsSection('servers')" data-section="servers">Servers</div>
-              <div class="settings-nav-item" onclick="showSettingsSection('portless')" data-section="portless">Portless Services</div>
-              <div class="settings-nav-item" onclick="showSettingsSection('apps')" data-section="apps">App Lifecycle</div>
-              <div class="settings-nav-item" onclick="showSettingsSection('backup')" data-section="backup">Backup & Restore</div>
+              <div class="settings-nav-item active" onclick="showSettingsSection('general')" data-section="general">
+                General</div>
+              <div class="settings-nav-item" onclick="showSettingsSection('accounts')" data-section="accounts">
+                Cloudflare Accounts</div>
+              <div class="settings-nav-item" onclick="showSettingsSection('servers')" data-section="servers">Servers
+              </div>
+              <div class="settings-nav-item" onclick="showSettingsSection('portless')" data-section="portless">Portless
+                Services</div>
+              <div class="settings-nav-item" onclick="showSettingsSection('apps')" data-section="apps">App Lifecycle
+              </div>
+              <div class="settings-nav-item" onclick="showSettingsSection('error-pages')" data-section="error-pages">
+                Error Pages</div>
+              <div class="settings-nav-item" onclick="showSettingsSection('backup')" data-section="backup">Backup &
+                Restore</div>
+
             </div>
           </div>
 
@@ -266,13 +383,15 @@
                   <div style="margin-bottom:16px;">
                     <h3 style="font-size:14px;color:var(--text2);margin-bottom:12px;">Server Settings</h3>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-                      <div><label>Dashboard Port</label><input class="input" id="setting-server-port" type="number" value="7070"></div>
+                      <div><label>Dashboard Port</label><input class="input" id="setting-server-port" type="number"
+                          value="7070"></div>
                       <div><label>Bind Host</label><input class="input" id="setting-server-host" value="0.0.0.0"></div>
                     </div>
                   </div>
                   <div style="margin-bottom:16px;">
                     <h3 style="font-size:14px;color:var(--text2);margin-bottom:12px;">Nginx Settings</h3>
-                    <div><label>Listen Port</label><input class="input" id="setting-nginx-port" type="number" value="6969"></div>
+                    <div><label>Listen Port</label><input class="input" id="setting-nginx-port" type="number"
+                        value="6969"></div>
                   </div>
                   <div style="margin-bottom:16px;">
                     <h3 style="font-size:14px;color:var(--text2);margin-bottom:12px;">Security</h3>
@@ -293,7 +412,8 @@
                   <h2 style="font-size:18px;">Cloudflare Accounts</h2>
                   <button class="btn btn-p" onclick="showModal('add-account-modal')">+ Add Account</button>
                 </div>
-                <p style="color:var(--text3);margin-bottom:16px;font-size:13px;">Manage your Cloudflare API keys and accounts. Each account can have multiple zones.</p>
+                <p style="color:var(--text3);margin-bottom:16px;font-size:13px;">Manage your Cloudflare API keys and
+                  accounts. Each account can have multiple zones.</p>
                 <div id="settings-accounts-list"></div>
               </div>
             </div>
@@ -304,7 +424,8 @@
                   <h2 style="font-size:18px;">Server Management</h2>
                   <button class="btn btn-p" onclick="showModal('add-server-modal')">+ Add Server</button>
                 </div>
-                <p style="color:var(--text3);margin-bottom:16px;font-size:13px;">Configure local or SSH servers for deploying applications.</p>
+                <p style="color:var(--text3);margin-bottom:16px;font-size:13px;">Configure local or SSH servers for
+                  deploying applications.</p>
                 <div id="settings-servers-list"></div>
               </div>
             </div>
@@ -315,7 +436,8 @@
                   <h2 style="font-size:18px;">Portless Services</h2>
                   <button class="btn btn-p" onclick="showModal('add-portless-modal')">+ Register Service</button>
                 </div>
-                <p style="color:var(--text3);margin-bottom:16px;font-size:13px;">Services are automatically assigned ports (4000-4999). Apps query their port via environment variable.</p>
+                <p style="color:var(--text3);margin-bottom:16px;font-size:13px;">Services are automatically assigned
+                  ports (4000-4999). Apps query their port via environment variable.</p>
                 <div id="settings-portless-list"></div>
               </div>
             </div>
@@ -326,18 +448,34 @@
                   <h2 style="font-size:18px;">App Lifecycle Management</h2>
                   <button class="btn btn-s" onclick="loadAppLifecycle()">Refresh</button>
                 </div>
-                <p style="color:var(--text3);margin-bottom:16px;font-size:13px;">Start, stop, and monitor applications. View logs and manage process lifecycle.</p>
+                <p style="color:var(--text3);margin-bottom:16px;font-size:13px;">Start, stop, and monitor applications.
+                  View logs and manage process lifecycle.</p>
                 <div id="settings-apps-lifecycle"></div>
               </div>
             </div>
+
+            <div id="settings-error-pages" class="settings-section hidden">
+              <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                  <h2 style="font-size:18px;">Custom Error Pages</h2>
+                  <button class="btn btn-s" onclick="loadErrorPages()">Refresh</button>
+                </div>
+                <p style="color:var(--text3);margin-bottom:16px;font-size:13px;">Customize 404, 502, 503, and other
+                  error pages using the visual editor.</p>
+                <div id="settings-error-pages-list"></div>
+              </div>
+            </div>
+
 
             <div id="settings-backup" class="settings-section hidden">
               <div class="card">
                 <h2 style="font-size:18px;margin-bottom:16px;">Backup & Restore</h2>
                 <div style="display:flex;gap:12px;margin-bottom:20px;">
                   <button class="btn btn-p" onclick="createBackup()">Create Backup</button>
-                  <button class="btn btn-s" onclick="document.getElementById('restore-file').click()">Restore from File</button>
-                  <input type="file" id="restore-file" style="display:none" accept=".json" onchange="restoreFromFile(event)">
+                  <button class="btn btn-s" onclick="document.getElementById('restore-file').click()">Restore from
+                    File</button>
+                  <input type="file" id="restore-file" style="display:none" accept=".json"
+                    onchange="restoreFromFile(event)">
                 </div>
                 <h3 style="font-size:14px;color:var(--text2);margin-bottom:12px;">Available Backups</h3>
                 <div id="settings-backup-list"></div>
@@ -351,63 +489,91 @@
 
   <div class="modal" id="add-account-modal">
     <div class="modal-box">
-      <div class="modal-hdr"><h2>Add Cloudflare Account</h2><button class="close-btn" onclick="closeModal('add-account-modal')">&times;</button></div>
+      <div class="modal-hdr">
+        <h2>Add Cloudflare Account</h2><button class="close-btn"
+          onclick="closeModal('add-account-modal')">&times;</button>
+      </div>
       <form onsubmit="addAccount(event)">
-        <div style="margin-bottom:12px"><label>Account Name</label><input class="input" id="acc-name" placeholder="Personal" required></div>
-        <div style="margin-bottom:12px"><label>Email</label><input class="input" id="acc-email" placeholder="user@example.com" required></div>
-        <div style="margin-bottom:12px"><label>API Key</label><input class="input" id="acc-key" type="password" placeholder="Cloudflare API key" required></div>
-        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button type="button" class="btn btn-s" onclick="closeModal('add-account-modal')">Cancel</button></div>
+        <div style="margin-bottom:12px"><label>Account Name</label><input class="input" id="acc-name"
+            placeholder="Personal" required></div>
+        <div style="margin-bottom:12px"><label>Email</label><input class="input" id="acc-email"
+            placeholder="user@example.com" required></div>
+        <div style="margin-bottom:12px"><label>API Key</label><input class="input" id="acc-key" type="password"
+            placeholder="Cloudflare API key" required></div>
+        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button
+            type="button" class="btn btn-s" onclick="closeModal('add-account-modal')">Cancel</button></div>
       </form>
     </div>
   </div>
 
   <div class="modal" id="add-zone-modal">
     <div class="modal-box">
-      <div class="modal-hdr"><h2>Add Zone</h2><button class="close-btn" onclick="closeModal('add-zone-modal')">&times;</button></div>
+      <div class="modal-hdr">
+        <h2>Add Zone</h2><button class="close-btn" onclick="closeModal('add-zone-modal')">&times;</button>
+      </div>
       <form onsubmit="addZone(event)">
         <input type="hidden" id="zone-acc-id">
         <div style="margin-bottom:12px"><label>Zone ID</label><input class="input" id="zone-id" required></div>
         <div style="margin-bottom:12px"><label>Domain</label><input class="input" id="zone-domain" required></div>
         <div style="margin-bottom:12px"><label>Tunnel ID</label><input class="input" id="zone-tunnel"></div>
-        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button type="button" class="btn btn-s" onclick="closeModal('add-zone-modal')">Cancel</button></div>
+        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button
+            type="button" class="btn btn-s" onclick="closeModal('add-zone-modal')">Cancel</button></div>
       </form>
     </div>
   </div>
 
   <div class="modal" id="add-mapping-modal">
     <div class="modal-box">
-      <div class="modal-hdr"><h2>Add Mapping</h2><button class="close-btn" onclick="closeModal('add-mapping-modal')">&times;</button></div>
+      <div class="modal-hdr">
+        <h2>Add Mapping</h2><button class="close-btn" onclick="closeModal('add-mapping-modal')">&times;</button>
+      </div>
       <form onsubmit="addMapping(event)">
         <input type="hidden" id="map-acc-id"><input type="hidden" id="map-zone-id">
         <div style="margin-bottom:12px"><label>Subdomain</label><input class="input" id="map-sub" required></div>
-        <div style="margin-bottom:12px"><label>Port</label><input class="input" id="map-port" type="number" required></div>
+        <div style="margin-bottom:12px"><label>Port</label><input class="input" id="map-port" type="number" required>
+        </div>
         <div style="margin-bottom:12px"><label>Description</label><input class="input" id="map-desc"></div>
-        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button type="button" class="btn btn-s" onclick="closeModal('add-mapping-modal')">Cancel</button></div>
+        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button
+            type="button" class="btn btn-s" onclick="closeModal('add-mapping-modal')">Cancel</button></div>
       </form>
     </div>
   </div>
 
   <div class="modal" id="add-health-modal">
     <div class="modal-box">
-      <div class="modal-hdr"><h2>Add Health Check</h2><button class="close-btn" onclick="closeModal('add-health-modal')">&times;</button></div>
+      <div class="modal-hdr">
+        <h2>Add Health Check</h2><button class="close-btn" onclick="closeModal('add-health-modal')">&times;</button>
+      </div>
       <form onsubmit="addHealthCheck(event)">
         <div style="margin-bottom:12px"><label>Name</label><input class="input" id="hc-name" placeholder="My API"></div>
-        <div style="margin-bottom:12px"><label>URL</label><input class="input" id="hc-url" placeholder="https://api.example.com/health" required></div>
-        <div style="margin-bottom:12px"><label>Interval (seconds)</label><input class="input" id="hc-interval" type="number" value="30"></div>
-        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button type="button" class="btn btn-s" onclick="closeModal('add-health-modal')">Cancel</button></div>
+        <div style="margin-bottom:12px"><label>URL</label><input class="input" id="hc-url"
+            placeholder="https://api.example.com/health" required></div>
+        <div style="margin-bottom:12px"><label>Interval (seconds)</label><input class="input" id="hc-interval"
+            type="number" value="30"></div>
+        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Add</button><button
+            type="button" class="btn btn-s" onclick="closeModal('add-health-modal')">Cancel</button></div>
       </form>
     </div>
   </div>
 
   <div class="modal" id="app-modal">
     <div class="modal-box" style="max-width:520px">
-      <div class="modal-hdr"><h2 id="app-modal-title">Add App</h2><button class="close-btn" onclick="closeModal('app-modal')">&times;</button></div>
+      <div class="modal-hdr">
+        <h2 id="app-modal-title">Add App</h2><button class="close-btn"
+          onclick="closeModal('app-modal')">&times;</button>
+      </div>
       <form onsubmit="saveApp(event)">
         <input type="hidden" id="app-edit-name" value="">
-        <div style="margin-bottom:12px"><label>App Name</label><input class="input" id="app-name" placeholder="my-app" required pattern="[a-z0-9-]+"></div>
-        <div style="margin-bottom:12px"><label>Hostname</label><input class="input" id="app-hostname" placeholder="my-app.aitradepulse.com" required></div>
+        <div style="margin-bottom:12px"><label>App Name</label><input class="input" id="app-name" placeholder="my-app"
+            required pattern="[a-z0-9-]+"></div>
+        <div style="margin-bottom:12px"><label>Hostname</label><input class="input" id="app-hostname"
+            placeholder="my-app.aitradepulse.com" required></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-          <div><label>Mode</label><select class="input" id="app-mode"><option value="port">Port</option><option value="socket">Socket</option><option value="portless">Portless</option></select></div>
+          <div><label>Mode</label><select class="input" id="app-mode">
+              <option value="port">Port</option>
+              <option value="socket">Socket</option>
+              <option value="portless">Portless</option>
+            </select></div>
           <div><label>Port</label><input class="input" id="app-port" type="number" placeholder="3000"></div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
@@ -415,8 +581,26 @@
           <div><label>Health Check Path</label><input class="input" id="app-health" placeholder="/health"></div>
         </div>
         <div style="margin-bottom:12px"><label><input type="checkbox" id="app-enabled" checked> Enabled</label></div>
-        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Save</button><button type="button" class="btn btn-s" onclick="closeModal('app-modal')">Cancel</button></div>
+        <div style="display:flex;gap:8px;margin-top:16px"><button type="submit" class="btn btn-p">Save</button><button
+            type="button" class="btn btn-s" onclick="closeModal('app-modal')">Cancel</button></div>
       </form>
+    </div>
+  </div>
+  <div class="modal" id="error-editor-modal">
+    <div class="modal-box" style="max-width:800px;width:95%">
+      <div class="modal-hdr">
+        <h2>Edit Error Page: <input type="text" id="edit-error-code" readonly
+            style="background:none;border:none;color:var(--accent);font-weight:bold;width:50px;font-size:inherit"></h2>
+        <button class="close-btn" onclick="closeModal('error-editor-modal')">&times;</button>
+      </div>
+      <div style="margin-bottom:16px">
+        <div id="editor-container" style="height:400px;background:#fff;color:#333;border-radius:0 0 8px 8px"></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-s" onclick="previewErrorPage()">👁️ Preview</button>
+        <button class="btn btn-p" onclick="saveErrorPage(event)">💾 Save Changes</button>
+        <button class="btn btn-s" onclick="closeModal('error-editor-modal')">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -425,13 +609,13 @@
     let authToken = localStorage.getItem('cf-router-token') || '';
     let ws = null;
     const APP_PROCESSES = new Map(); // Track running app processes
-    const commonPorts = {80:'HTTP',443:'HTTPS',3000:'Node',3001:'App',3002:'API',3003:'Dashboard',5432:'PostgreSQL',6379:'Redis',6969:'Nginx',7070:'CF-Router',8080:'Alt-HTTP',8443:'Alt-HTTPS'};
+    const commonPorts = { 80: 'HTTP', 443: 'HTTPS', 3000: 'Node', 3001: 'App', 3002: 'API', 3003: 'Dashboard', 5432: 'PostgreSQL', 6379: 'Redis', 6969: 'Nginx', 7070: 'CF-Router', 8080: 'Alt-HTTP', 8443: 'Alt-HTTPS' };
 
     async function fetchJSON(url, opts = {}) {
-      const headers = {'Content-Type':'application/json', ...opts.headers};
+      const headers = { 'Content-Type': 'application/json', ...opts.headers };
       if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
       try {
-        const res = await fetch(API + url, {...opts, headers});
+        const res = await fetch(API + url, { ...opts, headers });
         if (res.status === 401) { showLogin(); return null; }
         const data = await res.json();
         if (!res.ok && data.error) {
@@ -481,7 +665,76 @@
       if (ws) ws.close();
     }
 
+    let quill = null;
+    function initQuill() {
+      if (quill) return;
+      quill = new Quill('#editor-container', {
+        theme: 'snow',
+        modules: {
+          toolbar: [
+            [{ 'header': [1, 2, 3, false] }],
+            ['bold', 'italic', 'underline', 'strike'],
+            ['link', 'code-block'],
+            [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+            ['clean']
+          ]
+        }
+      });
+    }
+
+    async function loadErrorPages() {
+      const container = document.getElementById('settings-error-pages-list');
+      container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3)">Loading...</div>';
+
+      const pages = await fetchJSON('/api/error-pages');
+      if (!pages) return;
+
+      container.innerHTML = `<table><thead><tr><th>Code</th><th>Name</th><th>Modified</th><th>Actions</th></tr></thead>
+        <tbody>${pages.map(p => `<tr>
+          <td><strong>${p.code}</strong></td>
+          <td>${p.name}</td>
+          <td style="font-size:11px;color:var(--text3)">${p.updatedAt ? new Date(p.updatedAt).toLocaleString() : 'N/A'}</td>
+          <td><button class="btn btn-s btn-sm" onclick="editErrorPage('${p.code}')">✏️ Edit</button></td>
+        </tr>`).join('')}</tbody></table>`;
+    }
+
+    async function editErrorPage(code) {
+      const res = await fetchJSON(`/api/error-pages/${code}`);
+      if (!res) return;
+
+      document.getElementById('edit-error-code').value = code;
+      document.title = `Editing Error ${code}`;
+      showModal('error-editor-modal');
+      initQuill();
+      quill.root.innerHTML = res.content;
+    }
+
+    async function saveErrorPage(e) {
+      if (e) e.preventDefault();
+      const code = document.getElementById('edit-error-code').value;
+      const content = quill.root.innerHTML;
+
+      const res = await fetchJSON(`/api/error-pages/${code}`, {
+        method: 'PUT',
+        body: JSON.stringify({ content })
+      });
+
+      if (res?.success) {
+        showToast(`Error page ${code} saved`, 'success');
+        closeModal('error-editor-modal');
+        loadErrorPages();
+      }
+    }
+
+    function previewErrorPage() {
+      const content = quill.root.innerHTML;
+      const win = window.open('', '_blank');
+      win.document.write(content);
+      win.document.close();
+    }
+
     function showDashboard() {
+
       document.getElementById('login-screen').classList.add('hidden');
       document.getElementById('dashboard-screen').classList.remove('hidden');
       connectWebSocket();
@@ -509,9 +762,29 @@
 
     async function login(e) {
       e.preventDefault();
-      const res = await fetch(API + '/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:document.getElementById('login-password').value})}).then(r => r.json());
-      if (res.success) { authToken = res.token; localStorage.setItem('cf-router-token', authToken); showDashboard(); loadAll(); }
-      else document.getElementById('login-error').style.display = 'block';
+      const loginError = document.getElementById('login-error');
+      loginError.style.display = 'none';
+
+      try {
+        const res = await fetch(API + '/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: document.getElementById('login-password').value })
+        }).then(r => r.json());
+
+        if (res.success) {
+          authToken = res.token;
+          localStorage.setItem('cf-router-token', authToken);
+          showDashboard();
+          loadAll();
+        } else {
+          loginError.textContent = res.error || 'Invalid password';
+          loginError.style.display = 'block';
+        }
+      } catch (err) {
+        loginError.textContent = 'Network error: ' + err.message;
+        loginError.style.display = 'block';
+      }
     }
 
     function logout() { authToken = ''; localStorage.removeItem('cf-router-token'); showLogin(); }
@@ -533,7 +806,7 @@
       document.getElementById('traffic-errors').textContent = stats.errors;
       const chart = document.getElementById('traffic-chart');
       const max = Math.max(...stats.history.map(h => h.count), 1);
-      chart.innerHTML = stats.history.slice(-24).map(h => `<div class="chart-bar" style="height:${(h.count/max)*100}%" title="${h.hour}: ${h.count}"></div>`).join('');
+      chart.innerHTML = stats.history.slice(-24).map(h => `<div class="chart-bar" style="height:${(h.count / max) * 100}%" title="${h.hour}: ${h.count}"></div>`).join('');
     }
 
     function updateHealthUI(checks) {
@@ -542,7 +815,7 @@
       tbody.innerHTML = checks.map(c => `<tr>
         <td><span class="health-dot ${c.status}"></span>${c.name}</td>
         <td style="font-size:11px;color:var(--text3)">${c.url}</td>
-        <td><span class="badge ${c.status==='healthy'?'badge-ok':c.status==='unhealthy'?'badge-err':'badge-warn'}">${c.status}</span></td>
+        <td><span class="badge ${c.status === 'healthy' ? 'badge-ok' : c.status === 'unhealthy' ? 'badge-err' : 'badge-warn'}">${c.status}</span></td>
         <td>${c.latency ? c.latency + 'ms' : '-'}</td>
         <td style="font-size:11px">${c.lastCheck ? new Date(c.lastCheck).toLocaleTimeString() : '-'}</td>
         <td><button class="btn btn-d btn-sm" onclick="removeHealthCheck('${c.id}')">×</button></td>
@@ -551,22 +824,22 @@
 
     document.getElementById('main-tabs').addEventListener('click', (e) => {
       if (!e.target.classList.contains('tab')) return;
-     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-     e.target.classList.add('active');
-     const tab = e.target.dataset.tab;
-     ['accounts','domains','mappings','dns','tunnels','ssl','health','traffic','ports','nginx','routing','settings'].forEach(t => {
-       document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab);
-     });
-     if (tab === 'domains') loadDomains();
-     if (tab === 'dns') loadDNS();
-     if (tab === 'tunnels') loadTunnels();
-     if (tab === 'ssl') loadSSL();
-     if (tab === 'health') loadHealthChecks();
-     if (tab === 'traffic') loadStats();
-     if (tab === 'ports') scanPorts();
-     if (tab === 'nginx') loadNginx();
-     if (tab === 'routing') loadApps();
-     if (tab === 'settings') loadSettings();
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      e.target.classList.add('active');
+      const tab = e.target.dataset.tab;
+      ['accounts', 'domains', 'mappings', 'dns', 'tunnels', 'ssl', 'health', 'traffic', 'ports', 'nginx', 'routing', 'settings'].forEach(t => {
+        document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab);
+      });
+      if (tab === 'domains') loadDomains();
+      if (tab === 'dns') loadDNS();
+      if (tab === 'tunnels') loadTunnels();
+      if (tab === 'ssl') loadSSL();
+      if (tab === 'health') loadHealthChecks();
+      if (tab === 'traffic') loadStats();
+      if (tab === 'ports') scanPorts();
+      if (tab === 'nginx') loadNginx();
+      if (tab === 'routing') loadApps();
+      if (tab === 'settings') loadSettings();
     });
 
     async function loadStats() {
@@ -596,7 +869,7 @@
             <div class="actions" onclick="event.stopPropagation()"><button class="btn btn-s btn-sm" onclick="discoverZones('${acc.id}')">Discover</button><button class="btn btn-s btn-sm" onclick="showModal2('${acc.id}')">+ Zone</button><button class="btn btn-d btn-sm" onclick="removeAccount('${acc.id}')">×</button></div>
           </div>
           <div class="zone-list" id="zones-${idx}" style="display:none">
-            ${acc.zones.length ? acc.zones.map(z => `<div class="zone-item"><div class="zone-dot"></div><div class="zone-info"><div class="zone-domain">${z.domain}</div><div class="zone-meta">${z.zone_id}${z.tunnel_id ? ' • ' + z.tunnel_id.slice(0,8) + '...' : ''}</div></div><div class="actions"><button class="btn btn-s btn-sm" onclick="showModal3('${acc.id}','${z.zone_id}')">+ Map</button><button class="btn btn-d btn-sm" onclick="removeZone('${acc.id}','${z.zone_id}')">×</button></div></div>`).join('') : '<p style="color:var(--text3);padding:8px 0;font-size:12px">No zones</p>'}
+            ${acc.zones.length ? acc.zones.map(z => `<div class="zone-item"><div class="zone-dot"></div><div class="zone-info"><div class="zone-domain">${z.domain}</div><div class="zone-meta">${z.zone_id}${z.tunnel_id ? ' • ' + z.tunnel_id.slice(0, 8) + '...' : ''}</div></div><div class="actions"><button class="btn btn-s btn-sm" onclick="showModal3('${acc.id}','${z.zone_id}')">+ Map</button><button class="btn btn-d btn-sm" onclick="removeZone('${acc.id}','${z.zone_id}')">×</button></div></div>`).join('') : '<p style="color:var(--text3);padding:8px 0;font-size:12px">No zones</p>'}
           </div>
         </div>`).join('') + '</div>';
     }
@@ -615,7 +888,8 @@
     async function loadDomains() {
       const accounts = await fetchJSON('/api/accounts');
       if (!accounts) return;
-      const mappings = await fetchJSON('/api/mappings') || [];
+      const mappingsData = await fetchJSON('/api/mappings') || { data: [] };
+      const mappings = mappingsData.data || [];
       const allDomains = [];
       for (const acc of accounts) {
         for (const z of acc.zones) {
@@ -626,7 +900,7 @@
       document.getElementById('domains-list').innerHTML = allDomains.length ? allDomains.map(d => `<tr>
         <td><strong style="color:var(--accent)">${d.domain}</strong></td>
         <td style="font-family:monospace;font-size:11px;color:var(--text3)">${d.zone_id}</td>
-        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${d.tunnel_id ? d.tunnel_id.slice(0,8)+'...' : '-'}</td>
+        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${d.tunnel_id ? d.tunnel_id.slice(0, 8) + '...' : '-'}</td>
         <td><span class="badge badge-info">${d.mapping_count}</span></td>
         <td>${d.account_name}</td>
         <td><button class="btn btn-s btn-sm" onclick="showModal3('${d.account_id}','${d.zone_id}')">+ Mapping</button></td>
@@ -634,11 +908,12 @@
     }
 
     async function loadMappings() {
-      const mappings = await fetchJSON('/api/mappings');
-      if (!mappings) return;
+      const res = await fetchJSON('/api/mappings');
+      if (!res) return;
+      const mappings = res.data || [];
       document.getElementById('all-mappings').innerHTML = mappings.length ? mappings.map(m => `<tr>
         <td><strong>${m.full_domain}</strong></td><td>${m.port}</td><td>${m.account_name}</td><td>${m.domain}</td>
-        <td><span class="badge ${m.enabled!==false?'badge-ok':'badge-err'}">${m.enabled!==false?'Active':'Disabled'}</span></td>
+        <td><span class="badge ${m.enabled !== false ? 'badge-ok' : 'badge-err'}">${m.enabled !== false ? 'Active' : 'Disabled'}</span></td>
         <td><button class="btn btn-d btn-sm" onclick="removeMapping('${m.account_id}','${m.zone_id}','${m.subdomain}')">×</button></td>
       </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text3)">No mappings</td></tr>';
     }
@@ -657,8 +932,8 @@
       const tunnels = await fetchJSON('/api/tunnels/all');
       if (!tunnels) return;
       document.getElementById('tunnels-list').innerHTML = tunnels.length ? tunnels.map(t => `<tr>
-        <td><strong>${t.name}</strong></td><td style="font-family:monospace;font-size:11px;color:var(--text3)">${t.id.slice(0,8)}...</td>
-        <td><span class="badge ${t.status==='healthy'?'badge-ok':'badge-err'}">${t.status}</span></td>
+        <td><strong>${t.name}</strong></td><td style="font-family:monospace;font-size:11px;color:var(--text3)">${t.id.slice(0, 8)}...</td>
+        <td><span class="badge ${t.status === 'healthy' ? 'badge-ok' : 'badge-err'}">${t.status}</span></td>
         <td>${t.tun_type || '-'}</td><td>${t.account_name}</td><td>${t.created_at ? new Date(t.created_at).toLocaleDateString() : '-'}</td>
         <td><button class="btn btn-s btn-sm" onclick="restartTunnel('${t.id}')">🔄</button></td>
       </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text3)">No tunnels</td></tr>';
@@ -715,27 +990,29 @@
 
     async function addHealthCheck(e) {
       e.preventDefault();
-      await fetchJSON('/api/health-check/add', {method:'POST', body:JSON.stringify({
-        name: document.getElementById('hc-name').value,
-        url: document.getElementById('hc-url').value,
-        interval: parseInt(document.getElementById('hc-interval').value) * 1000
-      })});
+      await fetchJSON('/api/health-check/add', {
+        method: 'POST', body: JSON.stringify({
+          name: document.getElementById('hc-name').value,
+          url: document.getElementById('hc-url').value,
+          interval: parseInt(document.getElementById('hc-interval').value) * 1000
+        })
+      });
       closeModal('add-health-modal');
       loadHealthChecks();
     }
 
     async function removeHealthCheck(id) {
-      await fetchJSON(`/api/health-check/${id}`, {method:'DELETE'});
+      await fetchJSON(`/api/health-check/${id}`, { method: 'DELETE' });
       loadHealthChecks();
     }
 
     async function scanPorts() {
       document.getElementById('ports-list').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text3)">Scanning...</td></tr>';
-      const ports = await fetchJSON('/api/scan-ports', {method:'POST', body:JSON.stringify({})});
+      const ports = await fetchJSON('/api/scan-ports', { method: 'POST', body: JSON.stringify({}) });
       if (!ports) return;
-      document.getElementById('ports-list').innerHTML = ports.sort((a,b) => a.port - b.port).map(p => `<tr>
+      document.getElementById('ports-list').innerHTML = ports.sort((a, b) => a.port - b.port).map(p => `<tr>
         <td><strong>${p.port}</strong></td>
-        <td><span class="badge ${p.status==='open'?'badge-ok':'badge-err'}">${p.status}</span></td>
+        <td><span class="badge ${p.status === 'open' ? 'badge-ok' : 'badge-err'}">${p.status}</span></td>
         <td>${commonPorts[p.port] || '-'}</td>
       </tr>`).join('');
     }
@@ -744,18 +1021,18 @@
       const configs = await fetchJSON('/api/nginx/configs');
       if (!configs) return;
       document.getElementById('nginx-list').innerHTML = configs.map(c => {
-        const escaped = c.content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const escaped = c.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         return `<div class="card" style="margin-bottom:12px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <strong>${c.file}</strong>
             <div class="actions">
-              <button class="btn btn-s btn-sm" onclick="navigator.clipboard.writeText(\`${c.content.replace(/`/g,'\\`').replace(/\\/g,'\\\\')}\`)">📋 Copy</button>
+              <button class="btn btn-s btn-sm" onclick="navigator.clipboard.writeText(\`${c.content.replace(/`/g, '\\`').replace(/\\/g, '\\\\')}\`)">📋 Copy</button>
               <button class="btn btn-s btn-sm" onclick="toggleNginxEdit('${c.file}')">✏️ Edit</button>
             </div>
           </div>
-          <pre id="nginx-view-${c.file.replace(/[^a-zA-Z0-9]/g,'_')}" style="background:var(--bg);padding:12px;border-radius:8px;font-size:11px;overflow-x:auto;color:var(--text2);max-height:300px">${escaped}</pre>
-          <div id="nginx-edit-${c.file.replace(/[^a-zA-Z0-9]/g,'_')}" class="hidden" style="margin-top:8px">
-            <textarea id="nginx-textarea-${c.file.replace(/[^a-zA-Z0-9]/g,'_')}" class="input" style="width:100%;height:250px;font-family:monospace;font-size:11px;white-space:pre">${escaped}</textarea>
+          <pre id="nginx-view-${c.file.replace(/[^a-zA-Z0-9]/g, '_')}" style="background:var(--bg);padding:12px;border-radius:8px;font-size:11px;overflow-x:auto;color:var(--text2);max-height:300px">${escaped}</pre>
+          <div id="nginx-edit-${c.file.replace(/[^a-zA-Z0-9]/g, '_')}" class="hidden" style="margin-top:8px">
+            <textarea id="nginx-textarea-${c.file.replace(/[^a-zA-Z0-9]/g, '_')}" class="input" style="width:100%;height:250px;font-family:monospace;font-size:11px;white-space:pre">${escaped}</textarea>
             <div style="display:flex;gap:8px;margin-top:8px">
               <button class="btn btn-p btn-sm" onclick="saveNginxConfig('${c.file}')">💾 Save</button>
               <button class="btn btn-s btn-sm" onclick="toggleNginxEdit('${c.file}')">Cancel</button>
@@ -766,50 +1043,50 @@
     }
 
     function toggleNginxEdit(file) {
-      const safe = file.replace(/[^a-zA-Z0-9]/g,'_');
+      const safe = file.replace(/[^a-zA-Z0-9]/g, '_');
       document.getElementById('nginx-view-' + safe).classList.toggle('hidden');
       document.getElementById('nginx-edit-' + safe).classList.toggle('hidden');
     }
 
     async function saveNginxConfig(file) {
-      const safe = file.replace(/[^a-zA-Z0-9]/g,'_');
+      const safe = file.replace(/[^a-zA-Z0-9]/g, '_');
       const content = document.getElementById('nginx-textarea-' + safe).value;
-      const res = await fetchJSON('/api/nginx/configs/' + encodeURIComponent(file), {method:'PUT', body:JSON.stringify({content})});
+      const res = await fetchJSON('/api/nginx/configs/' + encodeURIComponent(file), { method: 'PUT', body: JSON.stringify({ content }) });
       if (res?.success) { alert('Saved! Click "Reload Nginx" to apply.'); loadNginx(); }
       else alert('Failed to save');
     }
 
     async function reloadNginx() {
       if (!confirm('Reload nginx? This will apply all config changes.')) return;
-      const res = await fetchJSON('/api/nginx/reload', {method:'POST'});
+      const res = await fetchJSON('/api/nginx/reload', { method: 'POST' });
       if (res?.success) alert('Nginx reloaded successfully!');
       else alert('Nginx reload failed: ' + (res?.error || 'unknown error'));
     }
 
     async function generateAndDeploy() {
       if (!confirm('Generate nginx configs and deploy all DNS records?')) return;
-      await fetchJSON('/api/generate', {method:'POST'});
-      await fetchJSON('/api/deploy', {method:'POST'});
+      await fetchJSON('/api/generate', { method: 'POST' });
+      await fetchJSON('/api/deploy', { method: 'POST' });
       alert('Deployed!');
       loadStats();
     }
 
     async function restartTunnel(id) {
       if (!confirm('Restart this tunnel?')) return;
-      await fetchJSON('/api/tunnel/restart', {method:'POST', body:JSON.stringify({})});
+      await fetchJSON('/api/tunnel/restart', { method: 'POST', body: JSON.stringify({}) });
       alert('Tunnel restarting...');
     }
 
     async function restartAllTunnels() {
       if (!confirm('Restart ALL tunnels?')) return;
-      await fetchJSON('/api/tunnel/restart-all', {method:'POST'});
+      await fetchJSON('/api/tunnel/restart-all', { method: 'POST' });
       alert('All tunnels restarting...');
     }
 
     async function exportConfig() {
       const data = await fetchJSON('/api/config/export');
       if (!data) return;
-      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = 'cloudflare-router-backup.json'; a.click();
@@ -822,34 +1099,34 @@
       const text = await file.text();
       const data = JSON.parse(text);
       if (!confirm('Import config? This will overwrite existing settings.')) return;
-      await fetchJSON('/api/config/import', {method:'POST', body:JSON.stringify(data)});
+      await fetchJSON('/api/config/import', { method: 'POST', body: JSON.stringify(data) });
       alert('Config imported!');
       loadAll();
     }
 
     async function addAccount(e) {
       e.preventDefault();
-      await fetchJSON('/api/accounts', {method:'POST', body:JSON.stringify({name:document.getElementById('acc-name').value, email:document.getElementById('acc-email').value, api_key:document.getElementById('acc-key').value})});
+      await fetchJSON('/api/accounts', { method: 'POST', body: JSON.stringify({ name: document.getElementById('acc-name').value, email: document.getElementById('acc-email').value, api_key: document.getElementById('acc-key').value }) });
       closeModal('add-account-modal');
       loadAccounts(); loadStats();
     }
 
-    async function removeAccount(id) { if (!confirm('Remove account?')) return; await fetchJSON(`/api/accounts/${id}`, {method:'DELETE'}); loadAccounts(); loadStats(); }
+    async function removeAccount(id) { if (!confirm('Remove account?')) return; await fetchJSON(`/api/accounts/${id}`, { method: 'DELETE' }); loadAccounts(); loadStats(); }
 
     async function addZone(e) {
       e.preventDefault();
-      await fetchJSON(`/api/accounts/${document.getElementById('zone-acc-id').value}/zones`, {method:'POST', body:JSON.stringify({zone_id:document.getElementById('zone-id').value, domain:document.getElementById('zone-domain').value, tunnel_id:document.getElementById('zone-tunnel').value})});
+      await fetchJSON(`/api/accounts/${document.getElementById('zone-acc-id').value}/zones`, { method: 'POST', body: JSON.stringify({ zone_id: document.getElementById('zone-id').value, domain: document.getElementById('zone-domain').value, tunnel_id: document.getElementById('zone-tunnel').value }) });
       closeModal('add-zone-modal');
       loadAccounts(); loadStats();
     }
 
-    async function removeZone(accId, zoneId) { if (!confirm('Remove zone?')) return; await fetchJSON(`/api/accounts/${accId}/zones/${zoneId}`, {method:'DELETE'}); loadAccounts(); loadStats(); }
+    async function removeZone(accId, zoneId) { if (!confirm('Remove zone?')) return; await fetchJSON(`/api/accounts/${accId}/zones/${zoneId}`, { method: 'DELETE' }); loadAccounts(); loadStats(); }
 
-    async function removeMapping(accId, zoneId, subdomain) { if (!confirm(`Remove mapping for ${subdomain}?`)) return; await fetchJSON(`/api/mappings/${accId}/${zoneId}/${subdomain}`, {method:'DELETE'}); loadMappings(); loadStats(); }
+    async function removeMapping(accId, zoneId, subdomain) { if (!confirm(`Remove mapping for ${subdomain}?`)) return; await fetchJSON(`/api/mappings/${accId}/${zoneId}/${subdomain}`, { method: 'DELETE' }); loadMappings(); loadStats(); }
 
     async function addMapping(e) {
       e.preventDefault();
-      await fetchJSON('/api/mappings', {method:'POST', body:JSON.stringify({account_id:document.getElementById('map-acc-id').value, zone_id:document.getElementById('map-zone-id').value, subdomain:document.getElementById('map-sub').value, port:parseInt(document.getElementById('map-port').value), description:document.getElementById('map-desc').value})});
+      await fetchJSON('/api/mappings', { method: 'POST', body: JSON.stringify({ account_id: document.getElementById('map-acc-id').value, zone_id: document.getElementById('map-zone-id').value, subdomain: document.getElementById('map-sub').value, port: parseInt(document.getElementById('map-port').value), description: document.getElementById('map-desc').value }) });
       closeModal('add-mapping-modal');
       loadAccounts(); loadMappings(); loadStats();
     }
@@ -932,14 +1209,14 @@
       };
       if (mode === 'port') body.port = parseInt(document.getElementById('app-port').value);
       const endpoint = editName ? `/api/apps/${encodeURIComponent(editName)}` : `/api/apps/${encodeURIComponent(name)}`;
-      const res = await fetchJSON(endpoint, {method:'PUT', body:JSON.stringify(body)});
+      const res = await fetchJSON(endpoint, { method: 'PUT', body: JSON.stringify(body) });
       if (res?.success) { closeModal('app-modal'); loadApps(); }
       else alert('Failed to save app');
     }
 
     async function deleteApp(name) {
       if (!confirm(`Delete app "${name}"?`)) return;
-      const res = await fetchJSON(`/api/apps/${encodeURIComponent(name)}`, {method:'DELETE'});
+      const res = await fetchJSON(`/api/apps/${encodeURIComponent(name)}`, { method: 'DELETE' });
       if (res?.success) loadApps();
       else alert('Failed to delete app');
     }
@@ -961,57 +1238,59 @@
       return data.value || {};
     }
 
-async function changeLanguage(lang) {
-  currentLang = lang;
-  const translations = await loadTranslations(lang);
-  applyTranslations();
-  localStorage.setItem('cf-lang', lang);
-}
+    async function changeLanguage(lang) {
+      currentLang = lang;
+      const translations = await loadTranslations(lang);
+      applyTranslations();
+      localStorage.setItem('cf-lang', lang);
+    }
 
-// Settings Management
-async function loadSettings() {
-  const settings = await fetchJSON('/api/settings');
-  if (!settings) return;
-  
-  document.getElementById('setting-server-port').value = settings.server?.port || 7070;
-  document.getElementById('setting-server-host').value = settings.server?.host || '0.0.0.0';
-  document.getElementById('setting-nginx-port').value = settings.nginx?.listen_port || 6969;
-  
-  await loadSettingsSections();
-}
+    // Settings Management
+    async function loadSettings() {
+      const settings = await fetchJSON('/api/settings');
+      if (!settings) return;
 
-async function loadSettingsSections() {
-  await Promise.all([
-    loadAccountsSection(),
-    loadServersSection(),
-    loadPortlessSection(),
-    loadAppsSection(),
-    loadBackupSection()
-  ]);
-}
+      document.getElementById('setting-server-port').value = settings.server?.port || 7070;
+      document.getElementById('setting-server-host').value = settings.server?.host || '0.0.0.0';
+      document.getElementById('setting-nginx-port').value = settings.nginx?.listen_port || 6969;
 
-function showSettingsSection(section) {
-  document.querySelectorAll('.settings-section').forEach(sec => {
-    sec.classList.add('hidden');
-  });
-  document.querySelectorAll('.settings-nav-item').forEach(item => {
-    item.classList.remove('active');
-  });
-  
-  document.getElementById(`settings-${section}`).classList.remove('hidden');
-  document.querySelector(`.settings-nav-item[data-section="${section}"]`).classList.add('active');
-}
+      await loadSettingsSections();
+    }
 
-async function loadAccountsSection() {
-  const accounts = await fetchJSON('/api/accounts') || [];
-  const container = document.getElementById('settings-accounts-list');
-  
-  if (!accounts.length) {
-    container.innerHTML = '<p style="color:var(--text3);text-align:center;padding:32px">No accounts configured</p>';
-    return;
-  }
-  
-  container.innerHTML = accounts.map(acc => `
+    async function loadSettingsSections() {
+      await Promise.all([
+        loadAccountsSection(),
+        loadServersSection(),
+        loadPortlessSection(),
+        loadAppsSection(),
+        loadErrorPages(),
+        loadBackupSection()
+      ]);
+
+    }
+
+    function showSettingsSection(section) {
+      document.querySelectorAll('.settings-section').forEach(sec => {
+        sec.classList.add('hidden');
+      });
+      document.querySelectorAll('.settings-nav-item').forEach(item => {
+        item.classList.remove('active');
+      });
+
+      document.getElementById(`settings-${section}`).classList.remove('hidden');
+      document.querySelector(`.settings-nav-item[data-section="${section}"]`).classList.add('active');
+    }
+
+    async function loadAccountsSection() {
+      const accounts = await fetchJSON('/api/accounts') || [];
+      const container = document.getElementById('settings-accounts-list');
+
+      if (!accounts.length) {
+        container.innerHTML = '<p style="color:var(--text3);text-align:center;padding:32px">No accounts configured</p>';
+        return;
+      }
+
+      container.innerHTML = accounts.map(acc => `
     <div class="card" style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <div>
@@ -1026,18 +1305,18 @@ async function loadAccountsSection() {
       </div>
     </div>
   `).join('');
-}
+    }
 
-async function loadServersSection() {
-  const servers = await fetchJSON('/api/servers') || [];
-  const container = document.getElementById('settings-servers-list');
-  
-  if (!servers.length) {
-    container.innerHTML = '<p style="color:var(--text3);text-align:center;padding:32px">No servers configured</p>';
-    return;
-  }
-  
-  container.innerHTML = servers.map(server => `
+    async function loadServersSection() {
+      const servers = await fetchJSON('/api/servers') || [];
+      const container = document.getElementById('settings-servers-list');
+
+      if (!servers.length) {
+        container.innerHTML = '<p style="color:var(--text3);text-align:center;padding:32px">No servers configured</p>';
+        return;
+      }
+
+      container.innerHTML = servers.map(server => `
     <div class="card" style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <div>
@@ -1051,19 +1330,19 @@ async function loadServersSection() {
       </div>
     </div>
   `).join('');
-}
+    }
 
-async function loadPortlessSection() {
-  const data = await fetchJSON('/api/portless') || {};
-  const services = data.services || [];
-  const container = document.getElementById('settings-portless-list');
-  
-  if (!services.length) {
-    container.innerHTML = '<p style="color:var(--text3);text-align:center;padding:32px">No portless services registered</p>';
-    return;
-  }
-  
-  container.innerHTML = services.map(svc => `
+    async function loadPortlessSection() {
+      const data = await fetchJSON('/api/portless') || {};
+      const services = data.services || [];
+      const container = document.getElementById('settings-portless-list');
+
+      if (!services.length) {
+        container.innerHTML = '<p style="color:var(--text3);text-align:center;padding:32px">No portless services registered</p>';
+        return;
+      }
+
+      container.innerHTML = services.map(svc => `
     <div class="card" style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <div>
@@ -1078,26 +1357,26 @@ async function loadPortlessSection() {
       </div>
     </div>
   `).join('');
-}
+    }
 
-async function loadAppsSection() {
-  const appsData = await fetchJSON('/api/apps') || {};
-  const apps = appsData.apps || {};
-  const names = Object.keys(apps).sort();
-  const container = document.getElementById('settings-apps-lifecycle');
-  
-  if (!names.length) {
-    container.innerHTML = '<p style="color:var(--text3);text-align:center;padding:32px">No apps configured</p>';
-    return;
-  }
-  
-  container.innerHTML = names.map(name => {
-    const app = apps[name];
-    const status = APP_PROCESSES.has(name) ? 'Running' : 'Stopped';
-    const statusClass = APP_PROCESSES.has(name) ? 'badge-ok' : 'badge-err';
-    const pid = APP_PROCESSES.has(name) ? APP_PROCESSES.get(name).pid : '-';
-    
-    return `
+    async function loadAppsSection() {
+      const appsData = await fetchJSON('/api/apps') || {};
+      const apps = appsData.apps || {};
+      const names = Object.keys(apps).sort();
+      const container = document.getElementById('settings-apps-lifecycle');
+
+      if (!names.length) {
+        container.innerHTML = '<p style="color:var(--text3);text-align:center;padding:32px">No apps configured</p>';
+        return;
+      }
+
+      container.innerHTML = names.map(name => {
+        const app = apps[name];
+        const status = APP_PROCESSES.has(name) ? 'Running' : 'Stopped';
+        const statusClass = APP_PROCESSES.has(name) ? 'badge-ok' : 'badge-err';
+        const pid = APP_PROCESSES.has(name) ? APP_PROCESSES.get(name).pid : '-';
+
+        return `
       <div class="card" style="margin-bottom:12px;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <div>
@@ -1108,28 +1387,28 @@ async function loadAppsSection() {
             <span class="badge ${statusClass}">${status}</span>
             <span class="badge badge-info">PID: ${pid}</span>
             <div class="actions" style="display:flex;gap:6px;">
-              ${APP_PROCESSES.has(name) ? 
-                `<button class="btn btn-s" onclick="stopAppLifecycle('${name}')">Stop</button>` :
-                `<button class="btn btn-p" onclick="startAppLifecycle('${name}')">Start</button>`}
+              ${APP_PROCESSES.has(name) ?
+            `<button class="btn btn-s" onclick="stopAppLifecycle('${name}')">Stop</button>` :
+            `<button class="btn btn-p" onclick="startAppLifecycle('${name}')">Start</button>`}
               <button class="btn btn-s" onclick="viewAppLogs('${name}')">Logs</button>
             </div>
           </div>
         </div>
       </div>
     `;
-  }).join('');
-}
+      }).join('');
+    }
 
-async function loadBackupSection() {
-  const backups = await fetchJSON('/api/backup/list') || [];
-  const container = document.getElementById('settings-backup-list');
-  
-  if (!backups.length) {
-    container.innerHTML = '<p style="color:var(--text3);text-align:center;padding:32px">No backups found</p>';
-    return;
-  }
-  
-  container.innerHTML = backups.map(backup => `
+    async function loadBackupSection() {
+      const backups = await fetchJSON('/api/backup/list') || [];
+      const container = document.getElementById('settings-backup-list');
+
+      if (!backups.length) {
+        container.innerHTML = '<p style="color:var(--text3);text-align:center;padding:32px">No backups found</p>';
+        return;
+      }
+
+      container.innerHTML = backups.map(backup => `
     <div class="card" style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;">
         <div>
@@ -1143,310 +1422,310 @@ async function loadBackupSection() {
       </div>
     </div>
   `).join('');
-}
-
-// Settings: Account Management
-async function showEditAccountModal(accountId) {
-  const accounts = await fetchJSON('/api/accounts') || [];
-  const account = accounts.find(acc => acc.id === accountId);
-  if (!account) return;
-  
-  document.getElementById('edit-acc-id').value = account.id;
-  document.getElementById('edit-acc-name').value = account.name || '';
-  document.getElementById('edit-acc-email').value = account.email || '';
-  document.getElementById('edit-acc-key').value = account.api_key || account.api_token || '';
-  showModal('edit-account-modal');
-}
-
-async function deleteAccountSetting(accountId) {
-  if (!confirm(`Delete account?`)) return;
-  const res = await fetchJSON(`/api/accounts/${accountId}`, {method: 'DELETE'});
-  if (res?.success) {
-    await loadAccountsSection();
-    showToast('Account deleted', 'success');
-  }
-}
-
-// Settings: Server Management
-async function showEditServerModal(serverId) {
-  const servers = await fetchJSON('/api/servers') || [];
-  const server = servers.find(s => s.id === serverId);
-  if (!server) return;
-  
-  document.getElementById('edit-server-id').value = server.id;
-  document.getElementById('edit-server-name').value = server.name || '';
-  document.getElementById('edit-server-type').value = server.type || 'local';
-  document.getElementById('edit-server-host').value = server.host || '';
-  document.getElementById('edit-server-port').value = server.port || '';
-  document.getElementById('edit-server-username').value = server.username || '';
-  document.getElementById('edit-server-keypath').value = server.keyPath || '';
-  showModal('edit-server-modal');
-}
-
-async function deleteServerSetting(serverId) {
-  if (!confirm(`Delete server?`)) return;
-  const res = await fetchJSON(`/api/servers/${serverId}`, {method: 'DELETE'});
-  if (res?.success) {
-    await loadServersSection();
-    showToast('Server deleted', 'success');
-  }
-}
-
-// Settings: Portless Management
-async function releasePortless(serviceName) {
-  if (!confirm(`Release portless service "${serviceName}"?`)) return;
-  const res = await fetchJSON(`/api/portless/${serviceName}`, {method: 'DELETE'});
-  if (res?.success) {
-    await loadPortlessSection();
-    showToast(`Service ${serviceName} released`, 'success');
-  }
-}
-
-async function showEditPortlessModal(serviceName) {
-  const data = await fetchJSON('/api/portless') || {};
-  const services = data.services || [];
-  const svc = services.find(s => s.name === serviceName);
-  if (!svc) return;
-  
-  document.getElementById('edit-portless-name').value = svc.name;
-  document.getElementById('edit-portless-subdomain').value = svc.subdomain || '';
-  document.getElementById('edit-portless-description').value = svc.description || '';
-  showModal('edit-portless-modal');
-}
-
-// Settings: App Lifecycle
-async function startAppLifecycle(appName) {
-  const res = await fetchJSON(`/api/apps/${appName}/start`, {method: 'POST'});
-  if (res?.success) {
-    await loadAppsSection();
-    showToast(`App ${appName} started (PID: ${res.pid})`, 'success');
-  }
-}
-
-async function stopAppLifecycle(appName) {
-  const res = await fetchJSON(`/api/apps/${appName}/stop`, {method: 'POST'});
-  if (res?.success) {
-    await loadAppsSection();
-    showToast(`App ${appName} stopped`, 'success');
-  }
-}
-
-async function viewAppLogs(appName) {
-  const logs = await fetchJSON(`/api/apps/${appName}/logs?lines=50`);
-  if (logs?.logs) {
-    const logText = logs.logs.join('\n');
-    alert(`Logs for ${appName}:\n\n${logText}`);
-  }
-}
-
-// Settings: Backup Management
-async function createBackup() {
-  showLoading();
-  try {
-    const backup = await fetchJSON('/api/backup/create', {method: 'POST'});
-    hideLoading();
-    if (backup?.success) {
-      await loadBackupSection();
-      showToast('Backup created successfully', 'success');
     }
-  } catch (err) {
-    hideLoading();
-    showToast('Backup failed: ' + err.message, 'error');
-  }
-}
 
-async function restoreBackupFromList(filename) {
-  if (!confirm(`Restore backup "${filename}"? This will overwrite current settings.`)) return;
-  showLoading();
-  try {
-    const res = await fetchJSON('/api/backup/restore', {
-      method: 'POST',
-      body: JSON.stringify({ file: filename })
-    });
-    hideLoading();
-    if (res?.success) {
-      await loadBackupSection();
-      showToast('Backup restored successfully', 'success');
+    // Settings: Account Management
+    async function showEditAccountModal(accountId) {
+      const accounts = await fetchJSON('/api/accounts') || [];
+      const account = accounts.find(acc => acc.id === accountId);
+      if (!account) return;
+
+      document.getElementById('edit-acc-id').value = account.id;
+      document.getElementById('edit-acc-name').value = account.name || '';
+      document.getElementById('edit-acc-email').value = account.email || '';
+      document.getElementById('edit-acc-key').value = account.api_key || account.api_token || '';
+      showModal('edit-account-modal');
     }
-  } catch (err) {
-    hideLoading();
-    showToast('Restore failed: ' + err.message, 'error');
-  }
-}
 
-async function deleteBackup(filename) {
-  if (!confirm(`Delete backup "${filename}"?`)) return;
-  showLoading();
-  try {
-    const res = await fetchJSON(`/api/backup/delete`, {
-      method: 'POST',
-      body: JSON.stringify({ file: filename })
-    });
-    hideLoading();
-    if (res?.success) {
-      await loadBackupSection();
-      showToast('Backup deleted', 'success');
+    async function deleteAccountSetting(accountId) {
+      if (!confirm(`Delete account?`)) return;
+      const res = await fetchJSON(`/api/accounts/${accountId}`, { method: 'DELETE' });
+      if (res?.success) {
+        await loadAccountsSection();
+        showToast('Account deleted', 'success');
+      }
     }
-  } catch (err) {
-    hideLoading();
-    showToast('Delete failed: ' + err.message, 'error');
-  }
-}
 
-async function restoreFromFile(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  
-  if (!confirm(`Restore from uploaded file? This will overwrite current settings.`)) return;
-  
-  showLoading();
-  try {
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    const res = await fetchJSON('/api/backup/restore-file', {
-      method: 'POST',
-      body: formData
-    });
-    
-    hideLoading();
-    if (res?.success) {
-      await loadBackupSection();
-      showToast('Backup restored from file', 'success');
+    // Settings: Server Management
+    async function showEditServerModal(serverId) {
+      const servers = await fetchJSON('/api/servers') || [];
+      const server = servers.find(s => s.id === serverId);
+      if (!server) return;
+
+      document.getElementById('edit-server-id').value = server.id;
+      document.getElementById('edit-server-name').value = server.name || '';
+      document.getElementById('edit-server-type').value = server.type || 'local';
+      document.getElementById('edit-server-host').value = server.host || '';
+      document.getElementById('edit-server-port').value = server.port || '';
+      document.getElementById('edit-server-username').value = server.username || '';
+      document.getElementById('edit-server-keypath').value = server.keyPath || '';
+      showModal('edit-server-modal');
     }
-  } catch (err) {
-    hideLoading();
-    showToast('Restore failed: ' + err.message, 'error');
-  }
-}
 
-// Modals for Settings
-async function showEditAccountModal(accountId) {
-  const accounts = await fetchJSON('/api/accounts') || [];
-  const account = accounts.find(acc => acc.id === accountId);
-  if (!account) return;
-  
-  document.getElementById('edit-acc-id').value = account.id;
-  document.getElementById('edit-acc-name').value = account.name || '';
-  document.getElementById('edit-acc-email').value = account.email || '';
-  document.getElementById('edit-acc-key').value = account.api_key || account.api_token || '';
-  showModal('edit-account-modal');
-}
+    async function deleteServerSetting(serverId) {
+      if (!confirm(`Delete server?`)) return;
+      const res = await fetchJSON(`/api/servers/${serverId}`, { method: 'DELETE' });
+      if (res?.success) {
+        await loadServersSection();
+        showToast('Server deleted', 'success');
+      }
+    }
 
-async function showEditServerModal(serverId) {
-  const servers = await fetchJSON('/api/servers') || [];
-  const server = servers.find(s => s.id === serverId);
-  if (!server) return;
-  
-  document.getElementById('edit-server-id').value = server.id;
-  document.getElementById('edit-server-name').value = server.name || '';
-  document.getElementById('edit-server-type').value = server.type || 'local';
-  document.getElementById('edit-server-host').value = server.host || '';
-  document.getElementById('edit-server-port').value = server.port || '';
-  document.getElementById('edit-server-username').value = server.username || '';
-  document.getElementById('edit-server-keypath').value = server.keyPath || '';
-  showModal('edit-server-modal');
-}
+    // Settings: Portless Management
+    async function releasePortless(serviceName) {
+      if (!confirm(`Release portless service "${serviceName}"?`)) return;
+      const res = await fetchJSON(`/api/portless/${serviceName}`, { method: 'DELETE' });
+      if (res?.success) {
+        await loadPortlessSection();
+        showToast(`Service ${serviceName} released`, 'success');
+      }
+    }
 
-async function showEditPortlessModal(serviceName) {
-  const data = await fetchJSON('/api/portless') || {};
-  const services = data.services || [];
-  const svc = services.find(s => s.name === serviceName);
-  if (!svc) return;
-  
-  document.getElementById('edit-portless-name').value = svc.name;
-  document.getElementById('edit-portless-subdomain').value = svc.subdomain || '';
-  document.getElementById('edit-portless-description').value = svc.description || '';
-  showModal('edit-portless-modal');
-}
+    async function showEditPortlessModal(serviceName) {
+      const data = await fetchJSON('/api/portless') || {};
+      const services = data.services || [];
+      const svc = services.find(s => s.name === serviceName);
+      if (!svc) return;
 
-// Save handlers for edit modals
-async function saveEditedAccount(e) {
-  e.preventDefault();
-  const accountId = document.getElementById('edit-acc-id').value;
-  const name = document.getElementById('edit-acc-name').value.trim();
-  const email = document.getElementById('edit-acc-email').value.trim();
-  const apiKey = document.getElementById('edit-acc-key').value.trim();
-  
-  if (!name || !email || !apiKey) {
-    showToast('Please fill in all fields', 'error');
-    return;
-  }
-  
-  const res = await fetchJSON(`/api/accounts/${accountId}`, {
-    method: 'PUT',
-    body: JSON.stringify({ name, email, api_key: apiKey })
-  });
-  
-  if (res?.success) {
-    closeModal('edit-account-modal');
-    await loadAccountsSection();
-    showToast('Account updated', 'success');
-  }
-}
+      document.getElementById('edit-portless-name').value = svc.name;
+      document.getElementById('edit-portless-subdomain').value = svc.subdomain || '';
+      document.getElementById('edit-portless-description').value = svc.description || '';
+      showModal('edit-portless-modal');
+    }
 
-async function saveEditedServer(e) {
-  e.preventDefault();
-  const serverId = document.getElementById('edit-server-id').value;
-  const name = document.getElementById('edit-server-name').value.trim();
-  const type = document.getElementById('edit-server-type').value;
-  const host = document.getElementById('edit-server-host').value.trim();
-  const port = parseInt(document.getElementById('edit-server-port').value) || undefined;
-  const username = document.getElementById('edit-server-username').value.trim();
-  const keyPath = document.getElementById('edit-server-keypath').value.trim();
-  
-  if (!name || !host) {
-    showToast('Please fill in required fields', 'error');
-    return;
-  }
-  
-  const res = await fetchJSON(`/api/servers/${serverId}`, {
-    method: 'PUT',
-    body: JSON.stringify({ name, type, host, port, username, keyPath })
-  });
-  
-  if (res?.success) {
-    closeModal('edit-server-modal');
-    await loadServersSection();
-    showToast('Server updated', 'success');
-  }
-}
+    // Settings: App Lifecycle
+    async function startAppLifecycle(appName) {
+      const res = await fetchJSON(`/api/apps/${appName}/start`, { method: 'POST' });
+      if (res?.success) {
+        await loadAppsSection();
+        showToast(`App ${appName} started (PID: ${res.pid})`, 'success');
+      }
+    }
 
-async function saveEditedPortless(e) {
-  e.preventDefault();
-  const name = document.getElementById('edit-portless-name').value.trim();
-  const subdomain = document.getElementById('edit-portless-subdomain').value.trim();
-  const description = document.getElementById('edit-portless-description').value.trim();
-  
-  if (!name) {
-    showToast('Service name is required', 'error');
-    return;
-  }
-  
-  // Update portless service metadata
-  const data = await fetchJSON('/api/portless') || {};
-  const services = data.services || {};
-  const svc = services.find(s => s.name === name);
-  if (!svc) {
-    showToast('Service not found', 'error');
-    return;
-  }
-  
-  const res = await fetchJSON(`/api/portless/${name}`, {
-    method: 'PUT',
-    body: JSON.stringify({ subdomain, description })
-  });
-  
-  if (res?.success) {
-    closeModal('edit-portless-modal');
-    await loadPortlessSection();
-    showToast('Service updated', 'success');
-  }
-}
+    async function stopAppLifecycle(appName) {
+      const res = await fetchJSON(`/api/apps/${appName}/stop`, { method: 'POST' });
+      if (res?.success) {
+        await loadAppsSection();
+        showToast(`App ${appName} stopped`, 'success');
+      }
+    }
 
-// Add modals for settings
-function addSettingsModals() {
-  const modalsHtml = `
+    async function viewAppLogs(appName) {
+      const logs = await fetchJSON(`/api/apps/${appName}/logs?lines=50`);
+      if (logs?.logs) {
+        const logText = logs.logs.join('\n');
+        alert(`Logs for ${appName}:\n\n${logText}`);
+      }
+    }
+
+    // Settings: Backup Management
+    async function createBackup() {
+      showLoading();
+      try {
+        const backup = await fetchJSON('/api/backup/create', { method: 'POST' });
+        hideLoading();
+        if (backup?.success) {
+          await loadBackupSection();
+          showToast('Backup created successfully', 'success');
+        }
+      } catch (err) {
+        hideLoading();
+        showToast('Backup failed: ' + err.message, 'error');
+      }
+    }
+
+    async function restoreBackupFromList(filename) {
+      if (!confirm(`Restore backup "${filename}"? This will overwrite current settings.`)) return;
+      showLoading();
+      try {
+        const res = await fetchJSON('/api/backup/restore', {
+          method: 'POST',
+          body: JSON.stringify({ file: filename })
+        });
+        hideLoading();
+        if (res?.success) {
+          await loadBackupSection();
+          showToast('Backup restored successfully', 'success');
+        }
+      } catch (err) {
+        hideLoading();
+        showToast('Restore failed: ' + err.message, 'error');
+      }
+    }
+
+    async function deleteBackup(filename) {
+      if (!confirm(`Delete backup "${filename}"?`)) return;
+      showLoading();
+      try {
+        const res = await fetchJSON(`/api/backup/delete`, {
+          method: 'POST',
+          body: JSON.stringify({ file: filename })
+        });
+        hideLoading();
+        if (res?.success) {
+          await loadBackupSection();
+          showToast('Backup deleted', 'success');
+        }
+      } catch (err) {
+        hideLoading();
+        showToast('Delete failed: ' + err.message, 'error');
+      }
+    }
+
+    async function restoreFromFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      if (!confirm(`Restore from uploaded file? This will overwrite current settings.`)) return;
+
+      showLoading();
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetchJSON('/api/backup/restore-file', {
+          method: 'POST',
+          body: formData
+        });
+
+        hideLoading();
+        if (res?.success) {
+          await loadBackupSection();
+          showToast('Backup restored from file', 'success');
+        }
+      } catch (err) {
+        hideLoading();
+        showToast('Restore failed: ' + err.message, 'error');
+      }
+    }
+
+    // Modals for Settings
+    async function showEditAccountModal(accountId) {
+      const accounts = await fetchJSON('/api/accounts') || [];
+      const account = accounts.find(acc => acc.id === accountId);
+      if (!account) return;
+
+      document.getElementById('edit-acc-id').value = account.id;
+      document.getElementById('edit-acc-name').value = account.name || '';
+      document.getElementById('edit-acc-email').value = account.email || '';
+      document.getElementById('edit-acc-key').value = account.api_key || account.api_token || '';
+      showModal('edit-account-modal');
+    }
+
+    async function showEditServerModal(serverId) {
+      const servers = await fetchJSON('/api/servers') || [];
+      const server = servers.find(s => s.id === serverId);
+      if (!server) return;
+
+      document.getElementById('edit-server-id').value = server.id;
+      document.getElementById('edit-server-name').value = server.name || '';
+      document.getElementById('edit-server-type').value = server.type || 'local';
+      document.getElementById('edit-server-host').value = server.host || '';
+      document.getElementById('edit-server-port').value = server.port || '';
+      document.getElementById('edit-server-username').value = server.username || '';
+      document.getElementById('edit-server-keypath').value = server.keyPath || '';
+      showModal('edit-server-modal');
+    }
+
+    async function showEditPortlessModal(serviceName) {
+      const data = await fetchJSON('/api/portless') || {};
+      const services = data.services || [];
+      const svc = services.find(s => s.name === serviceName);
+      if (!svc) return;
+
+      document.getElementById('edit-portless-name').value = svc.name;
+      document.getElementById('edit-portless-subdomain').value = svc.subdomain || '';
+      document.getElementById('edit-portless-description').value = svc.description || '';
+      showModal('edit-portless-modal');
+    }
+
+    // Save handlers for edit modals
+    async function saveEditedAccount(e) {
+      e.preventDefault();
+      const accountId = document.getElementById('edit-acc-id').value;
+      const name = document.getElementById('edit-acc-name').value.trim();
+      const email = document.getElementById('edit-acc-email').value.trim();
+      const apiKey = document.getElementById('edit-acc-key').value.trim();
+
+      if (!name || !email || !apiKey) {
+        showToast('Please fill in all fields', 'error');
+        return;
+      }
+
+      const res = await fetchJSON(`/api/accounts/${accountId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name, email, api_key: apiKey })
+      });
+
+      if (res?.success) {
+        closeModal('edit-account-modal');
+        await loadAccountsSection();
+        showToast('Account updated', 'success');
+      }
+    }
+
+    async function saveEditedServer(e) {
+      e.preventDefault();
+      const serverId = document.getElementById('edit-server-id').value;
+      const name = document.getElementById('edit-server-name').value.trim();
+      const type = document.getElementById('edit-server-type').value;
+      const host = document.getElementById('edit-server-host').value.trim();
+      const port = parseInt(document.getElementById('edit-server-port').value) || undefined;
+      const username = document.getElementById('edit-server-username').value.trim();
+      const keyPath = document.getElementById('edit-server-keypath').value.trim();
+
+      if (!name || !host) {
+        showToast('Please fill in required fields', 'error');
+        return;
+      }
+
+      const res = await fetchJSON(`/api/servers/${serverId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name, type, host, port, username, keyPath })
+      });
+
+      if (res?.success) {
+        closeModal('edit-server-modal');
+        await loadServersSection();
+        showToast('Server updated', 'success');
+      }
+    }
+
+    async function saveEditedPortless(e) {
+      e.preventDefault();
+      const name = document.getElementById('edit-portless-name').value.trim();
+      const subdomain = document.getElementById('edit-portless-subdomain').value.trim();
+      const description = document.getElementById('edit-portless-description').value.trim();
+
+      if (!name) {
+        showToast('Service name is required', 'error');
+        return;
+      }
+
+      // Update portless service metadata
+      const data = await fetchJSON('/api/portless') || {};
+      const services = data.services || {};
+      const svc = services.find(s => s.name === name);
+      if (!svc) {
+        showToast('Service not found', 'error');
+        return;
+      }
+
+      const res = await fetchJSON(`/api/portless/${name}`, {
+        method: 'PUT',
+        body: JSON.stringify({ subdomain, description })
+      });
+
+      if (res?.success) {
+        closeModal('edit-portless-modal');
+        await loadPortlessSection();
+        showToast('Service updated', 'success');
+      }
+    }
+
+    // Add modals for settings
+    function addSettingsModals() {
+      const modalsHtml = `
     <!-- Edit Account Modal -->
     <div class="modal" id="edit-account-modal">
       <div class="modal-box">
@@ -1495,24 +1774,25 @@ function addSettingsModals() {
       </div>
     </div>
   `;
-  
-  document.body.insertAdjacentHTML('beforeend', modalsHtml);
-}
 
-// Initialize settings modals when dashboard loads
-const origShowDashboard = showDashboard;
-showDashboard = function() {
-  origShowDashboard();
-  if (document.getElementById('tab-settings') && document.getElementById('tab-settings').classList.contains('active')) {
-    loadSettings();
-  }
-  // Add modals if not already added
-  if (!document.getElementById('edit-account-modal')) {
-    addSettingsModals();
-  }
-};
+      document.body.insertAdjacentHTML('beforeend', modalsHtml);
+    }
 
-checkAuth();
+    // Initialize settings modals when dashboard loads
+    const origShowDashboard = showDashboard;
+    showDashboard = function () {
+      origShowDashboard();
+      if (document.getElementById('tab-settings') && document.getElementById('tab-settings').classList.contains('active')) {
+        loadSettings();
+      }
+      // Add modals if not already added
+      if (!document.getElementById('edit-account-modal')) {
+        addSettingsModals();
+      }
+    };
+
+    checkAuth();
   </script>
 </body>
+
 </html>

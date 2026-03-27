@@ -1,129 +1,84 @@
-# CF-Router App Registry
-# ======================
-# Defines all applications and their routing configuration.
-# Supports three modes: port, socket, portless
-#
-# Usage:
-#   - port:     Traditional port-based routing
-#   - socket:   Unix socket-based routing (no port conflicts)
-#   - portless: Auto-assigned port via portless
-#
-# After editing, run: cf-router reload
-
 apps:
-  # === PORT MODE ===
-  # Traditional: app listens on a specific port
-  mt5-router:
-    mode: port
-    hostname: mt-oc.aitradepulse.com
-    host: 127.0.0.1
-    port: 8080
-    health_check: /api/health
-    enabled: true
-
-  saas:
-    mode: port
-    hostname: saas.aitradepulse.com
-    host: 127.0.0.1
-    port: 3000
-    health_check: /
-    enabled: true
-
-  ai:
-    mode: port
-    hostname: ai.aitradepulse.com
-    host: 127.0.0.1
-    port: 20128
-    health_check: /health
-    enabled: true
-
   1ai:
-    mode: port
+    enabled: true
+    health_check: /
+    host: 127.0.0.1
     hostname: 1ai.aitradepulse.com
-    host: 127.0.0.1
+    mode: port
     port: 4000
-    health_check: /
-    enabled: true
-
   1ai-api:
-    mode: port
+    enabled: true
+    health_check: /health
+    host: 127.0.0.1
     hostname: 1ai-api.aitradepulse.com
-    host: 127.0.0.1
+    mode: port
     port: 3002
-    health_check: /health
+  adforge:
     enabled: true
-
+    hostname: adforge.aitradepulse.com
+    mode: port
+    port: 3000
+  ai:
+    enabled: true
+    health_check: /api/monitoring/health
+    host: 127.0.0.1
+    hostname: ai.aitradepulse.com
+    mode: port
+    port: 20128
   cc:
-    mode: port
-    hostname: cc.aitradepulse.com
-    host: 127.0.0.1
-    port: 19527
-    health_check: /
     enabled: false
-
+    health_check: /
+    host: 127.0.0.1
+    hostname: cc.aitradepulse.com
+    mode: port
+    port: 19527
   cc2:
-    mode: port
+    enabled: true
+    health_check: /
+    host: 127.0.0.1
     hostname: cc2.aitradepulse.com
-    host: 127.0.0.1
+    mode: port
     port: 1420
-    health_check: /
-    enabled: true
-
-  gateway:
-    mode: port
-    hostname: gateway.aitradepulse.com
-    host: 127.0.0.1
-    port: 18789
-    health_check: /health
-    enabled: true
-    no_tls_verify: true
-
-  paperclip:
-    mode: port
-    hostname: paperclip.aitradepulse.com
-    host: 127.0.0.1
-    port: 3100
-    health_check: /
-    enabled: true
-
-  phonefarm:
-    mode: port
-    hostname: phonefarm.aitradepulse.com
-    host: 127.0.0.1
-    port: 8889
-    health_check: /
-    enabled: true
-
-  # CF-Router's own dashboard server
   cf-router:
-    mode: port
-    hostname: cf-router.aitradepulse.com
-    host: 127.0.0.1
-    port: 7070
-    health_check: /api/status
     enabled: true
-
-  # === SOCKET MODE ===
-  # Unix socket: app creates a socket file, no port needed
-  # To use: start your app with the socket
-  # Example: uvicorn app.main:app --factory --unix-socket /tmp/myapp.sock
-  
-  # Example socket app (commented out - uncomment when needed)
-  # my-socket-app:
-  #   mode: socket
-  #   hostname: myapp.aitradepulse.com
-  #   path: /tmp/myapp.sock
-  #   health_check: /
-  #   enabled: true
-
-  # === PORTLESS MODE ===
-  # Auto-assigned port via portless
-  # The app runs with: portless run <app-name> <command>
-  # cf-router will auto-discover and route
-  
-  # Example portless app (uncomment when needed)
-  # my-portless-app:
-  #   mode: portless
-  #   hostname: myapp-dev.aitradepulse.com
-  #   health_check: /
-  #   enabled: true
+    health_check: /api/status
+    host: 127.0.0.1
+    hostname: cf-router.aitradepulse.com
+    mode: port
+    port: 7070
+  gateway:
+    enabled: true
+    health_check: /health
+    host: 127.0.0.1
+    hostname: gateway.aitradepulse.com
+    mode: port
+    no_tls_verify: true
+    port: 18789
+  mt5-router:
+    enabled: true
+    health_check: /api/health
+    host: 127.0.0.1
+    hostname: mt-oc.aitradepulse.com
+    mode: port
+    port: 8080
+  paperclip:
+    enabled: true
+    health_check: /
+    host: 127.0.0.1
+    hostname: paperclip.aitradepulse.com
+    mode: port
+    port: 3100
+  phonefarm:
+    enabled: true
+    health_check: /
+    host: 127.0.0.1
+    hostname: phonefarm.aitradepulse.com
+    mode: port
+    port: 8889
+  saas:
+    enabled: true
+    health_check: /
+    host: 127.0.0.1
+    hostname: saas.aitradepulse.com
+    mode: port
+    port: 3000
