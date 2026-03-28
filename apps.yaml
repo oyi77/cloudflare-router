@@ -1,4 +1,11 @@
 apps:
+  hub:
+    enabled: true
+    health_check: /health
+    host: 127.0.0.1
+    hostname: hub.aitradepulse.com
+    mode: port
+    port: 9099
   1ai:
     enabled: true
     health_check: /

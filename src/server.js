@@ -34,11 +34,11 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", "cdnjs.cloudflare.com", "fonts.googleapis.com"],
       styleSrcAttr: ["'unsafe-inline'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "cdnjs.cloudflare.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "cdnjs.cloudflare.com", "static.cloudflareinsights.com"],
       scriptSrcAttr: ["'unsafe-inline'"],
       fontSrc: ["'self'", "cdnjs.cloudflare.com", "fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "cdnjs.cloudflare.com"],
-      connectSrc: ["'self'", "ws:", "wss:"],
+      imgSrc: ["'self'", "data:", "blob:", "cdnjs.cloudflare.com"],
+      connectSrc: ["'self'", "ws:", "wss:", "cdnjs.cloudflare.com"],
     },
   },
   crossOriginEmbedderPolicy: false,
@@ -341,9 +341,12 @@ app.post('/api/mappings', validators.mapping.create, handleValidationErrors, asy
     generateAllNginxConfigs();
     for (const account of cfg.accounts || []) {
       for (const zone of account.zones || []) {
+        // Deploy DNS records
         const { loadMappings: lm } = require('./config');
         const { mappings: zm } = lm(account.id, zone.zone_id);
         await deployMappingsForZone(account.id, zone.zone_id, zone.domain, zone.tunnel_id, zm).catch(() => {});
+        // Sync tunnel ingress to Cloudflare API (so cloudflared picks it up)
+        await syncZoneCloudflare(account.id, zone.zone_id).catch(() => {});
       }
     }
     notify('deploy_success', {});
@@ -355,11 +358,15 @@ app.delete('/api/mappings/:account/:zone/:subdomain', validators.mapping.remove,
   removeMapping(req.params.account, req.params.zone, req.params.subdomain);
   logAudit('mapping_removed', { subdomain: req.params.subdomain, user: 'dashboard' });
   notify('mapping_removed', { subdomain: req.params.subdomain });
+  // Sync tunnel ingress after removal
+  await syncZoneCloudflare(req.params.account, req.params.zone).catch(() => {});
   res.json({ success: true });
 }));
 
 app.patch('/api/mappings/:account/:zone/:subdomain', validators.mapping.remove, validators.mapping.toggle, handleValidationErrors, asyncHandler(async (req, res) => {
   toggleMapping(req.params.account, req.params.zone, req.params.subdomain, req.body.enabled);
+  // Sync tunnel ingress after toggle
+  await syncZoneCloudflare(req.params.account, req.params.zone).catch(() => {});
   res.json({ success: true });
 }));
 

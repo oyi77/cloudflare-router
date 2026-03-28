@@ -119,6 +119,7 @@ program.command('add').description('Add a subdomain mapping')
       console.log(chalk.blue('  Auto-deploying...'));
       generateAllNginxConfigs();
       console.log(chalk.green('  ✓ nginx configs generated'));
+      const { syncZoneCloudflare } = require('./cloudflare');
       for (const account of config.accounts || []) {
         for (const zone of account.zones || []) {
           const { loadMappings } = require('./config');
@@ -126,6 +127,9 @@ program.command('add').description('Add a subdomain mapping')
           const results = await deployMappingsForZone(account.id, zone.zone_id, zone.domain, zone.tunnel_id, zm);
           const created = results.filter(r => r.status === 'created').length;
           console.log(chalk.green(`  ✓ DNS deployed (${created} new records)`));
+          // Sync tunnel ingress so cloudflared picks it up immediately
+          await syncZoneCloudflare(account.id, zone.zone_id).catch(() => {});
+          console.log(chalk.green('  ✓ Tunnel ingress synced to Cloudflare'));
           notify('deploy_success', { count: created });
         }
       }
