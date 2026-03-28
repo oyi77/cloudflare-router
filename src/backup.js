@@ -170,14 +170,111 @@ function stopAutoBackup() {
   }
 }
 
+/**
+ * createAutoBackup — called before generate/deploy.
+ * Creates a timestamped auto-backup with prefix 'auto-'.
+ * Keeps max 50 auto-backups (separate from manual).
+ */
+function createAutoBackup() {
+  ensureBackupDir();
+  const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+  const backupFile = path.join(backupsDir, `auto-${ts}.json`);
+
+  // Don't double-backup within 30 seconds
+  const recent = fs.readdirSync(backupsDir)
+    .filter(f => f.startsWith('auto-'))
+    .sort()
+    .reverse()[0];
+  if (recent) {
+    const recentTs = fs.statSync(path.join(backupsDir, recent)).mtimeMs;
+    if (Date.now() - recentTs < 30000) return { file: path.join(backupsDir, recent), skipped: true };
+  }
+
+  const backup = {
+    timestamp: new Date().toISOString(),
+    type: 'auto',
+    config: loadConfig(),
+    mappings: {},
+  };
+
+  if (fs.existsSync(MAPPINGS_DIR)) {
+    fs.readdirSync(MAPPINGS_DIR).filter(f => f.endsWith('.yml')).forEach(f => {
+      backup.mappings[f] = fs.readFileSync(path.join(MAPPINGS_DIR, f), 'utf8');
+    });
+  }
+
+  fs.writeFileSync(backupFile, JSON.stringify(backup, null, 2));
+
+  // Keep max 50 auto-backups
+  const autoBackups = fs.readdirSync(backupsDir)
+    .filter(f => f.startsWith('auto-') && f.endsWith('.json'))
+    .sort();
+  if (autoBackups.length > 50) {
+    autoBackups.slice(0, autoBackups.length - 50).forEach(f => {
+      try { fs.unlinkSync(path.join(backupsDir, f)); } catch {}
+    });
+  }
+
+  return { file: backupFile, timestamp: backup.timestamp };
+}
+
+/**
+ * rollback — restore from the most recent or a specific backup file.
+ * @param {string|null} file - basename or full path. null = most recent auto backup.
+ */
+function rollback(file = null) {
+  ensureBackupDir();
+  let backupPath;
+
+  if (!file) {
+    // Most recent auto backup
+    const autoBackups = fs.readdirSync(backupsDir)
+      .filter(f => f.startsWith('auto-') && f.endsWith('.json'))
+      .sort()
+      .reverse();
+    if (!autoBackups.length) {
+      const allBackups = listBackups();
+      if (!allBackups.length) throw new Error('No backups found');
+      backupPath = allBackups[0].path;
+    } else {
+      backupPath = path.join(backupsDir, autoBackups[0]);
+    }
+  } else {
+    // Accept basename or full path
+    backupPath = path.isAbsolute(file) ? file : path.join(backupsDir, file);
+    if (!fs.existsSync(backupPath)) throw new Error(`Backup not found: ${backupPath}`);
+  }
+
+  const result = restoreBackup(backupPath);
+  return { ...result, file: path.basename(backupPath) };
+}
+
+/**
+ * listRecentBackups — list last N backups (auto + manual combined).
+ */
+function listRecentBackups(limit = 10) {
+  ensureBackupDir();
+  return fs.readdirSync(backupsDir)
+    .filter(f => f.endsWith('.json'))
+    .map(f => {
+      const stat = fs.statSync(path.join(backupsDir, f));
+      return { file: f, path: path.join(backupsDir, f), size: stat.size, created: stat.mtime.toISOString(), type: f.startsWith('auto-') ? 'auto' : 'manual' };
+    })
+    .sort((a, b) => new Date(b.created) - new Date(a.created))
+    .slice(0, limit);
+}
+
 module.exports = {
   createBackup,
+  createAutoBackup,
   restoreBackup,
+  rollback,
   listBackups,
+  listRecentBackups,
   runHealthCheck,
   getHealthHistory,
   getBackupConfig,
   saveBackupConfig,
   startAutoBackup,
-  stopAutoBackup
+  stopAutoBackup,
 };

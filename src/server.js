@@ -15,9 +15,13 @@ const { loadConfig, saveConfig, addAccount, removeAccount, addZoneToAccount, rem
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
 const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords, listTunnelsForAccount, syncZoneCloudflare } = require('./cloudflare');
 const { rateLimitMiddleware, addToWhitelist, addToBlacklist, removeFromWhitelist, removeFromBlacklist, getIPLists, getRateLimitStats } = require('./middleware');
-const { createBackup, restoreBackup, listBackups, runHealthCheck, getHealthHistory, startAutoBackup, getBackupConfig, saveBackupConfig } = require('./backup');
+const { createBackup, createAutoBackup, restoreBackup, rollback, listBackups, listRecentBackups, runHealthCheck, getHealthHistory, startAutoBackup, getBackupConfig, saveBackupConfig } = require('./backup');
 const { getAvailableLanguages, translate, i18nMiddleware } = require('./i18n');
 const { requestLoggerMiddleware, getAccessLogs, getErrorLogs, clearLogs, getLogStats } = require('./logger');
+const { logAudit, readAudit, auditStats } = require('./audit');
+const { discoverPorts } = require('./discovery');
+const { listTemplates } = require('./templates');
+const { notify, trackServiceHealth, getNotifConfig, saveNotifConfig, maskNotifConfig } = require('./notifier');
 const { registerService, getPort, releaseService, listServices, updateService } = require('./portless');
 const { getErrorPage, saveErrorPage, listErrorPages, initializeDefaultPages } = require('./error-pages');
 
@@ -327,13 +331,30 @@ app.get('/api/mappings', validators.list, handleValidationErrors, asyncHandler(a
 }));
 
 app.post('/api/mappings', validators.mapping.create, handleValidationErrors, asyncHandler(async (req, res) => {
-  const { account_id, zone_id, subdomain, port, description } = req.body;
-  const mappings = addMapping(account_id, zone_id, subdomain, port, description || '');
+  const { account_id, zone_id, subdomain, port, description, template, nginx_extra } = req.body;
+  const mappings = addMapping(account_id, zone_id, subdomain, port, description || '', 'http', { template: template || 'default', nginx_extra });
+  logAudit('mapping_added', { subdomain, port, description, template, user: 'dashboard' });
+  notify('mapping_added', { subdomain, port, description });
+  // Auto-deploy if configured
+  const cfg = loadConfig();
+  if (cfg.server?.auto_deploy) {
+    generateAllNginxConfigs();
+    for (const account of cfg.accounts || []) {
+      for (const zone of account.zones || []) {
+        const { loadMappings: lm } = require('./config');
+        const { mappings: zm } = lm(account.id, zone.zone_id);
+        await deployMappingsForZone(account.id, zone.zone_id, zone.domain, zone.tunnel_id, zm).catch(() => {});
+      }
+    }
+    notify('deploy_success', {});
+  }
   res.status(201).json({ success: true, mappings });
 }));
 
 app.delete('/api/mappings/:account/:zone/:subdomain', validators.mapping.remove, handleValidationErrors, asyncHandler(async (req, res) => {
   removeMapping(req.params.account, req.params.zone, req.params.subdomain);
+  logAudit('mapping_removed', { subdomain: req.params.subdomain, user: 'dashboard' });
+  notify('mapping_removed', { subdomain: req.params.subdomain });
   res.json({ success: true });
 }));
 
@@ -363,8 +384,13 @@ app.post('/api/deploy', async (req, res) => {
         allResults.push({ account: account.name, zone: zone.domain, results });
       }
     }
+    logAudit('deploy', { results: allResults, user: 'dashboard' });
+    notify('deploy_success', { count: allResults.reduce((s, r) => s + (r.results?.length || 0), 0) });
     res.json({ success: true, results: allResults });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) {
+    notify('deploy_fail', { error: error.message });
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.post('/api/cloudflare/sync', async (req, res) => {
@@ -990,6 +1016,95 @@ function setupWebSocket(server) {
     clients.forEach(ws => { try { ws.send(data); } catch (e) { } });
   }, 10000);
 }
+
+// ── Service Discovery ─────────────────────────────────────────────────────────
+app.get('/api/discover', asyncHandler(async (req, res) => {
+  const ports = discoverPorts();
+  res.json({ ports, total: ports.length, unmapped: ports.filter(p => !p.mapped).length });
+}));
+
+// ── Templates ─────────────────────────────────────────────────────────────────
+app.get('/api/templates', (req, res) => {
+  res.json({ templates: listTemplates() });
+});
+
+// ── Audit Log ─────────────────────────────────────────────────────────────────
+app.get('/api/audit', [query('limit').optional().isInt({ min: 1, max: 500 }).toInt(), query('action').optional().trim()], handleValidationErrors, (req, res) => {
+  const { limit = 50, action } = req.query;
+  const entries = readAudit({ limit, action });
+  res.json({ entries, total: entries.length });
+});
+
+app.get('/api/audit/stats', (req, res) => {
+  res.json(auditStats());
+});
+
+// ── Rollback ─────────────────────────────────────────────────────────────────
+app.post('/api/rollback', asyncHandler(async (req, res) => {
+  const { file } = req.body;
+  const result = rollback(file || null);
+  logAudit('rollback', { file: result.file, user: 'dashboard' });
+  res.json({ success: true, ...result });
+}));
+
+app.get('/api/backups/recent', (req, res) => {
+  const backups = listRecentBackups(20);
+  res.json({ backups });
+});
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+app.get('/api/notifications/config', (req, res) => {
+  res.json(maskNotifConfig(getNotifConfig()));
+});
+
+app.put('/api/notifications/config', asyncHandler(async (req, res) => {
+  const current = getNotifConfig();
+  const updated = { ...current, ...req.body };
+  // Don't overwrite masked token
+  if (req.body?.telegram?.bot_token && req.body.telegram.bot_token.includes('***')) {
+    updated.telegram.bot_token = current.telegram?.bot_token || '';
+  }
+  saveNotifConfig(updated);
+  res.json({ success: true, config: maskNotifConfig(updated) });
+}));
+
+app.post('/api/notifications/test', asyncHandler(async (req, res) => {
+  await notify('test', { message: 'Test notification from CF-Router dashboard' });
+  res.json({ success: true, message: 'Test notification sent' });
+}));
+
+// ── Health check with notification ───────────────────────────────────────────
+const net2 = require('net');
+async function pingPort(port) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const socket = new net2.Socket();
+    socket.setTimeout(2000);
+    socket.connect(port, '127.0.0.1', () => {
+      const latency = Date.now() - start;
+      socket.destroy();
+      resolve({ up: true, latency });
+    });
+    socket.on('error', () => { socket.destroy(); resolve({ up: false, latency: null }); });
+    socket.on('timeout', () => { socket.destroy(); resolve({ up: false, latency: null }); });
+  });
+}
+
+app.get('/api/health-status', asyncHandler(async (req, res) => {
+  const mappings = getAllMappings();
+  const seen = new Set();
+  const unique = mappings.filter(m => { if (seen.has(m.port)) return false; seen.add(m.port); return true; });
+  const results = await Promise.all(unique.map(async (m) => {
+    const { up, latency } = await pingPort(m.port);
+    await trackServiceHealth(m.port, m.subdomain, up, latency);
+    return { subdomain: m.subdomain, port: m.port, up, latency, domain: m.full_domain };
+  }));
+  res.json({ services: results, checked_at: new Date().toISOString() });
+}));
+
+// ── Auto-deploy hook (wrap addMapping API) ─────────────────────────────────
+// Patch existing mappings create to support auto_deploy
+const _origMappingCreate = app._router.stack.find(r => r.route?.path === '/api/mappings' && r.route?.methods?.post);
 
 function startServer(port = 7070) {
   return new Promise((resolve) => {

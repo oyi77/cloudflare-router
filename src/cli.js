@@ -2,12 +2,17 @@
 
 const { Command } = require('commander');
 const chalk = require('chalk');
-const { loadConfig, addAccount, removeAccount, addZoneToAccount, removeZoneFromAccount, addMapping, removeMapping, toggleMapping, getAllMappings, getConfigDir } = require('./config');
+const { loadConfig, saveConfig, addAccount, removeAccount, addZoneToAccount, removeZoneFromAccount, addMapping, removeMapping, toggleMapping, getAllMappings, getConfigDir } = require('./config');
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
 const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords } = require('./cloudflare');
 const { startServer } = require('./server');
 const { startMCPServer } = require('./mcp');
 const portless = require('./portless');
+const { logAudit, readAudit, auditStats } = require('./audit');
+const { discoverPorts, getUnmappedCandidates } = require('./discovery');
+const { listTemplates } = require('./templates');
+const { createAutoBackup, rollback, listRecentBackups } = require('./backup');
+const { notify } = require('./notifier');
 
 const program = new Command();
 program.name('cloudflare-router').description('Manage Cloudflare Tunnels, nginx, and DNS from one place').version('1.2.0');
@@ -78,14 +83,53 @@ program.command('zone:remove').description('Remove a zone from an account')
   });
 
 program.command('add').description('Add a subdomain mapping')
-  .requiredOption('--account <id>', 'Account ID')
-  .requiredOption('--zone <id>', 'Zone ID')
+  .option('--account <id>', 'Account ID (auto-detected if only one account)')
+  .option('--zone <id>', 'Zone ID (auto-detected if only one zone)')
   .requiredOption('--subdomain <name>', 'Subdomain name')
   .requiredOption('--port <port>', 'Local port')
   .option('-d, --description <desc>', 'Description')
-  .action((opts) => {
-    const mappings = addMapping(opts.account, opts.zone, opts.subdomain, parseInt(opts.port), opts.description || '');
-    console.log(chalk.green(`✓ ${opts.subdomain} → localhost:${opts.port}`));
+  .option('--template <name>', 'Nginx template: default|nextjs|api|websocket|grpc|static|largefiles', 'default')
+  .option('--nginx-extra <directives>', 'Extra nginx directives to inject')
+  .option('--auto-deploy', 'Auto generate+deploy after adding')
+  .action(async (opts) => {
+    const config = loadConfig();
+    // Auto-detect account/zone if not provided and only one exists
+    let accountId = opts.account;
+    let zoneId = opts.zone;
+    if (!accountId && config.accounts?.length === 1) accountId = config.accounts[0].id;
+    if (!zoneId && config.accounts?.length === 1 && config.accounts[0].zones?.length === 1) {
+      zoneId = config.accounts[0].zones[0].zone_id;
+    }
+    if (!accountId || !zoneId) {
+      console.error(chalk.red('✗ --account and --zone are required (or configure a single account/zone)'));
+      process.exit(1);
+    }
+    const before = null;
+    const mappings = addMapping(accountId, zoneId, opts.subdomain, parseInt(opts.port), opts.description || '', 'http', {
+      template: opts.template || 'default',
+      nginx_extra: opts.nginxExtra,
+    });
+    const added = mappings.find(m => m.subdomain === opts.subdomain);
+    logAudit('mapping_added', { subdomain: opts.subdomain, port: parseInt(opts.port), description: opts.description, template: opts.template, user: 'cli', before, after: added });
+    notify('mapping_added', { subdomain: opts.subdomain, port: parseInt(opts.port), description: opts.description });
+    console.log(chalk.green(`✓ ${opts.subdomain} → localhost:${opts.port}`) + (opts.template && opts.template !== 'default' ? chalk.gray(` [${opts.template}]`) : ''));
+
+    const autoDeploy = opts.autoDeploy || config.server?.auto_deploy;
+    if (autoDeploy) {
+      console.log(chalk.blue('  Auto-deploying...'));
+      generateAllNginxConfigs();
+      console.log(chalk.green('  ✓ nginx configs generated'));
+      for (const account of config.accounts || []) {
+        for (const zone of account.zones || []) {
+          const { loadMappings } = require('./config');
+          const { mappings: zm } = loadMappings(account.id, zone.zone_id);
+          const results = await deployMappingsForZone(account.id, zone.zone_id, zone.domain, zone.tunnel_id, zm);
+          const created = results.filter(r => r.status === 'created').length;
+          console.log(chalk.green(`  ✓ DNS deployed (${created} new records)`));
+          notify('deploy_success', { count: created });
+        }
+      }
+    }
   });
 
 program.command('remove').description('Remove a mapping')
@@ -139,17 +183,90 @@ program.command('deploy').description('Deploy DNS records')
   });
 
 program.command('status').description('Show status')
-  .action(() => {
-    const config = loadConfig();
-    const mappings = getAllMappings();
-    const nginx = getNginxStatus();
-    console.log(chalk.bold('\nCloudflare Router Status:'));
-    console.log(chalk.gray('─'.repeat(60)));
-    console.log(`Accounts:  ${chalk.cyan(config.accounts?.length || 0)}`);
-    console.log(`Zones:     ${chalk.cyan(config.accounts?.reduce((s, a) => s + (a.zones?.length || 0), 0) || 0)}`);
-    console.log(`Mappings:  ${chalk.cyan(mappings.length)}`);
-    console.log(`Nginx:     ${nginx.running ? chalk.green('Running') : chalk.red('Stopped')}`);
-    console.log(chalk.gray('─'.repeat(60)));
+  .option('--watch', 'Live monitor mode (refresh every N seconds)')
+  .option('--interval <sec>', 'Refresh interval in seconds for --watch', '5')
+  .action(async (opts) => {
+    const http = require('http');
+    const fs = require('fs');
+    const path = require('path');
+
+    async function pingService(port, healthPath = '/cf-health') {
+      return new Promise((resolve) => {
+        const start = Date.now();
+        const req = http.get({ hostname: '127.0.0.1', port, path: healthPath, timeout: 2000 }, (res) => {
+          res.resume();
+          resolve({ up: res.statusCode < 500, latency: Date.now() - start, status: res.statusCode });
+        });
+        req.on('error', () => resolve({ up: false, latency: null, status: null }));
+        req.on('timeout', () => { req.destroy(); resolve({ up: false, latency: null, status: null }); });
+      });
+    }
+
+    async function renderStatus() {
+      const config = loadConfig();
+      const mappings = getAllMappings();
+      const nginx = getNginxStatus();
+
+      if (opts.watch) process.stdout.write('\x1Bc'); // clear screen
+
+      const now = new Date().toLocaleString('en-US', { hour12: false });
+      const width = 64;
+      const border = '═'.repeat(width);
+      const titlePad = Math.floor((width - 38) / 2);
+      console.log(chalk.cyan(`╔${border}╗`));
+      console.log(chalk.cyan(`║`) + ' '.repeat(titlePad) + chalk.bold.white(`CF-Router Live Monitor`) + chalk.gray(`  [${now}]`) + ' '.repeat(Math.max(0, width - titlePad - 21 - now.length - 4)) + chalk.cyan(`║`));
+      console.log(chalk.cyan(`╠${border}╣`));
+
+      const nginxStr = nginx.running ? chalk.green(`✅ Running (${nginx.processes} workers)`) : chalk.red('❌ Stopped');
+      console.log(chalk.cyan(`║`) + `  Nginx: ${nginxStr}` + ' '.repeat(Math.max(0, width - 10 - (nginx.running ? 18 + String(nginx.processes).length : 10))) + chalk.cyan(`║`));
+      console.log(chalk.cyan(`║`) + `  Mappings: ${chalk.cyan(mappings.length)} active  Accounts: ${chalk.cyan(config.accounts?.length || 0)}` + ' '.repeat(10) + chalk.cyan(`║`));
+      console.log(chalk.cyan(`╠${border}╣`));
+      console.log(chalk.cyan(`║`) + chalk.bold(`  ${'SERVICE'.padEnd(22)} ${'PORT'.padEnd(7)} ${'STATUS'.padEnd(12)} LATENCY`) + ' '.repeat(4) + chalk.cyan(`║`));
+      console.log(chalk.cyan(`╠${border}╣`));
+
+      // Load apps.yaml health_check paths
+      let appsConfig = {};
+      try {
+        const yaml = require('js-yaml');
+        const appsFile = path.join(require('./config').CONFIG_DIR, 'apps.yaml');
+        if (fs.existsSync(appsFile)) {
+          const parsed = yaml.load(fs.readFileSync(appsFile, 'utf8'));
+          appsConfig = parsed?.apps || {};
+        }
+      } catch {}
+
+      // Deduplicate by port
+      const seen = new Set();
+      const unique = mappings.filter(m => {
+        if (seen.has(m.port)) return false;
+        seen.add(m.port);
+        return true;
+      }).slice(0, 20); // max 20 rows in watch mode
+
+      for (const m of unique) {
+        const appKey = m.subdomain;
+        const healthPath = appsConfig[appKey]?.health_check || '/cf-health';
+        const { up, latency } = opts.watch ? await pingService(m.port, healthPath) : { up: null, latency: null };
+        const statusStr = up === null ? chalk.gray('--') : up ? chalk.green('🟢 UP') : chalk.red('🔴 DOWN');
+        const latStr = latency ? chalk.yellow(`${latency}ms`) : chalk.gray('-');
+        const name = (m.subdomain || 'root').slice(0, 20);
+        console.log(chalk.cyan(`║`) + `  ${name.padEnd(22)} ${String(m.port).padEnd(7)} ${statusStr.padEnd(opts.watch ? 14 : 4)} ${latStr}` + ' '.repeat(2) + chalk.cyan(`║`));
+      }
+
+      console.log(chalk.cyan(`╠${border}╣`));
+      const hint = opts.watch ? '  Press Ctrl+C to exit' : '  Use --watch for live monitoring';
+      console.log(chalk.cyan(`║`) + chalk.gray(hint) + ' '.repeat(Math.max(0, width - hint.length)) + chalk.cyan(`║`));
+      console.log(chalk.cyan(`╚${border}╝`));
+    }
+
+    if (opts.watch) {
+      const interval = Math.max(2, parseInt(opts.interval) || 5) * 1000;
+      await renderStatus();
+      const timer = setInterval(renderStatus, interval);
+      process.on('SIGINT', () => { clearInterval(timer); process.exit(0); });
+    } else {
+      await renderStatus();
+    }
   });
 
 program.command('dashboard').description('Start web dashboard')
@@ -305,6 +422,336 @@ program.command('port:sync')
       });
     }
     console.log(chalk.green('\n✓ Portless sync complete'));
+  });
+
+// ── Service Discovery ─────────────────────────────────────────────────────────
+
+program.command('discover')
+  .description('Scan listening ports and interactively assign subdomains to unmapped services')
+  .option('--json', 'Output all ports as JSON (non-interactive)')
+  .option('--all', 'Include already-mapped ports in output')
+  .option('--auto-deploy', 'Auto generate+deploy after assignments')
+  .action(async (opts) => {
+    const ports = discoverPorts();
+
+    if (opts.json) {
+      console.log(JSON.stringify(opts.all ? ports : ports.filter(p => !p.mapped), null, 2));
+      return;
+    }
+
+    console.log(chalk.bold('\nScanning listening ports...'));
+    console.log(chalk.gray('─'.repeat(72)));
+    console.log(chalk.bold(`${'PORT'.padEnd(8)}${'PROCESS'.padEnd(22)}MAPPED TO`));
+    console.log(chalk.gray('─'.repeat(72)));
+
+    for (const p of ports) {
+      const portStr = chalk.cyan(String(p.port).padEnd(8));
+      const procStr = p.process.padEnd(22);
+      const mappedStr = p.mapped ? chalk.green(`✓ ${p.subdomain}`) : chalk.yellow('✗ unmapped');
+      console.log(`${portStr}${procStr}${mappedStr}`);
+    }
+    console.log(chalk.gray('─'.repeat(72)));
+
+    const candidates = ports.filter(p => !p.mapped && p.port > 1024 && ![22, 80, 443, 25, 53, 3306, 5432].includes(p.port));
+    if (!candidates.length) {
+      console.log(chalk.green('\n✓ All services are already mapped!'));
+      return;
+    }
+
+    console.log(chalk.yellow(`\n${candidates.length} unmapped service(s) found.\n`));
+
+    // Interactive prompts
+    let { input } = require('@inquirer/prompts');
+    if (!input) {
+      const mod = require('@inquirer/prompts');
+      input = mod.input || mod.default?.input;
+    }
+    const { confirm } = require('@inquirer/prompts');
+
+    const config = loadConfig();
+    let accountId = config.accounts?.[0]?.id;
+    let zoneId = config.accounts?.[0]?.zones?.[0]?.zone_id;
+    const assignments = [];
+
+    for (const candidate of candidates) {
+      let subdomain;
+      try {
+        subdomain = await input({
+          message: `Subdomain for port ${chalk.cyan(candidate.port)} (${candidate.process})? [Enter to skip]`,
+          default: '',
+        });
+      } catch { break; }
+
+      if (!subdomain?.trim()) {
+        console.log(chalk.gray(`  Skipped port ${candidate.port}`));
+        continue;
+      }
+      assignments.push({ ...candidate, subdomain: subdomain.trim() });
+    }
+
+    if (!assignments.length) {
+      console.log(chalk.yellow('No assignments made.'));
+      return;
+    }
+
+    console.log(chalk.bold('\nSummary:'));
+    assignments.forEach(a => console.log(`  ${chalk.green('+')} ${a.subdomain} → localhost:${a.port}`));
+
+    let doIt;
+    try {
+      doIt = await confirm({ message: 'Apply these mappings?', default: true });
+    } catch { doIt = true; }
+
+    if (!doIt) { console.log(chalk.yellow('Aborted.')); return; }
+
+    for (const a of assignments) {
+      addMapping(accountId, zoneId, a.subdomain, a.port, a.process);
+      logAudit('mapping_added', { subdomain: a.subdomain, port: a.port, user: 'cli:discover' });
+      console.log(chalk.green(`  ✓ Added ${a.subdomain} → localhost:${a.port}`));
+    }
+
+    if (opts.autoDeploy || config.server?.auto_deploy) {
+      generateAllNginxConfigs();
+      console.log(chalk.green('✓ nginx configs generated'));
+      for (const account of config.accounts || []) {
+        for (const zone of account.zones || []) {
+          const { loadMappings } = require('./config');
+          const { mappings: zm } = loadMappings(account.id, zone.zone_id);
+          await deployMappingsForZone(account.id, zone.zone_id, zone.domain, zone.tunnel_id, zm);
+          console.log(chalk.green('✓ DNS deployed'));
+        }
+      }
+    } else {
+      console.log(chalk.blue('\nNext: run `cloudflare-router generate && cloudflare-router deploy`'));
+    }
+  });
+
+// ── Templates ─────────────────────────────────────────────────────────────────
+
+program.command('templates').description('List available nginx config templates')
+  .action(() => {
+    const templates = listTemplates();
+    console.log(chalk.bold('\nAvailable Nginx Templates:'));
+    console.log(chalk.gray('─'.repeat(60)));
+    templates.forEach(t => {
+      console.log(`  ${chalk.cyan(t.name.padEnd(15))} ${t.description}`);
+    });
+    console.log(chalk.gray('─'.repeat(60)));
+    console.log(chalk.gray('Usage: cloudflare-router add --subdomain x --port 3000 --template nextjs'));
+  });
+
+// ── Rollback ──────────────────────────────────────────────────────────────────
+
+program.command('rollback').description('Restore mappings from a previous backup')
+  .option('--last', 'Restore most recent backup without prompt')
+  .option('--file <filename>', 'Restore specific backup file')
+  .option('--list', 'List available backups')
+  .action(async (opts) => {
+    if (opts.list) {
+      const backups = listRecentBackups(20);
+      if (!backups.length) { console.log(chalk.yellow('No backups found')); return; }
+      console.log(chalk.bold('\nAvailable Backups:'));
+      console.log(chalk.gray('─'.repeat(70)));
+      backups.forEach((b, i) => {
+        const typeStr = b.type === 'auto' ? chalk.gray('[auto]') : chalk.cyan('[manual]');
+        console.log(`  ${String(i + 1).padEnd(4)}${b.file.padEnd(40)} ${typeStr} ${chalk.gray(b.created)}`);
+      });
+      return;
+    }
+
+    if (opts.last) {
+      const result = rollback(null);
+      logAudit('rollback', { file: result.file, user: 'cli' });
+      console.log(chalk.green(`✓ Restored from ${result.file}`));
+      console.log(chalk.blue('  Run `cloudflare-router generate` to apply changes'));
+      return;
+    }
+
+    if (opts.file) {
+      const result = rollback(opts.file);
+      logAudit('rollback', { file: result.file, user: 'cli' });
+      console.log(chalk.green(`✓ Restored from ${result.file}`));
+      return;
+    }
+
+    // Interactive select
+    const backups = listRecentBackups(10);
+    if (!backups.length) { console.log(chalk.yellow('No backups found')); return; }
+
+    console.log(chalk.bold('\nAvailable Backups (most recent first):'));
+    backups.forEach((b, i) => {
+      const typeStr = b.type === 'auto' ? '[auto]' : '[manual]';
+      console.log(`  ${chalk.cyan(String(i + 1).padEnd(4))} ${b.file.padEnd(42)} ${chalk.gray(b.created)} ${typeStr}`);
+    });
+
+    let { input } = require('@inquirer/prompts');
+    if (!input) input = require('@inquirer/prompts').default?.input;
+    let choice;
+    try {
+      choice = await input({ message: 'Restore which backup? (number or filename, Enter to cancel)', default: '' });
+    } catch { return; }
+
+    if (!choice?.trim()) { console.log(chalk.yellow('Cancelled')); return; }
+
+    let backupFile;
+    const num = parseInt(choice.trim());
+    if (!isNaN(num) && num >= 1 && num <= backups.length) {
+      backupFile = backups[num - 1].file;
+    } else {
+      backupFile = choice.trim();
+    }
+
+    const result = rollback(backupFile);
+    logAudit('rollback', { file: result.file, user: 'cli' });
+    console.log(chalk.green(`✓ Restored from ${result.file}`));
+    console.log(chalk.blue('  Run `cloudflare-router generate` to apply nginx changes'));
+  });
+
+// ── Audit Log ─────────────────────────────────────────────────────────────────
+
+program.command('audit').description('View deployment audit log')
+  .option('--limit <n>', 'Number of entries to show', '20')
+  .option('--action <type>', 'Filter by action (mapping_added, deploy, generate, rollback, ...)')
+  .option('--stats', 'Show summary statistics')
+  .action((opts) => {
+    if (opts.stats) {
+      const stats = auditStats();
+      console.log(chalk.bold('\nAudit Log Statistics:'));
+      console.log(chalk.gray('─'.repeat(50)));
+      console.log(`Total entries:  ${chalk.cyan(stats.total)}`);
+      console.log(`Today:          ${chalk.cyan(stats.today)}`);
+      console.log(chalk.bold('\nBy action:'));
+      Object.entries(stats.by_action).sort((a, b) => b[1] - a[1]).forEach(([action, count]) => {
+        console.log(`  ${action.padEnd(25)} ${chalk.yellow(count)}`);
+      });
+      return;
+    }
+
+    const entries = readAudit({ limit: parseInt(opts.limit) || 20, action: opts.action });
+    if (!entries.length) { console.log(chalk.yellow('No audit entries found')); return; }
+
+    console.log(chalk.bold('\nAudit Log:'));
+    console.log(chalk.gray('─'.repeat(80)));
+    entries.forEach(e => {
+      const ts = chalk.gray(e.ts?.slice(0, 19).replace('T', ' ') || '');
+      const action = chalk.cyan(e.action?.padEnd(20) || '');
+      const user = chalk.gray(`[${e.user || 'system'}]`);
+      const detail = e.subdomain ? `${e.subdomain}${e.port ? `:${e.port}` : ''}` : (e.file || e.total || '');
+      console.log(`${ts}  ${action}  ${user}  ${detail}`);
+    });
+    console.log(chalk.gray('─'.repeat(80)));
+    console.log(chalk.gray(`Showing ${entries.length} entries`));
+  });
+
+// ── Interactive Wizard ────────────────────────────────────────────────────────
+
+program.command('wizard').description('Interactive wizard to add a new service mapping')
+  .action(async () => {
+    const { input, select, confirm } = require('@inquirer/prompts');
+
+    console.log(chalk.bold.cyan('\n🧙 CF-Router Wizard — Add New Service\n'));
+
+    const config = loadConfig();
+    if (!config.accounts?.length) {
+      console.error(chalk.red('✗ No accounts configured. Run `cloudflare-router account:add` first.'));
+      process.exit(1);
+    }
+
+    // Step 1: Scan ports
+    console.log(chalk.gray('Scanning listening ports...'));
+    const candidates = getUnmappedCandidates();
+    const portChoices = candidates.map(p => ({
+      name: `${p.port} — ${p.process}`,
+      value: p.port,
+    }));
+    portChoices.push({ name: 'Enter port manually', value: 'manual' });
+
+    let port;
+    if (portChoices.length > 1) {
+      try {
+        const portChoice = await select({
+          message: 'Select port to expose:',
+          choices: portChoices,
+        });
+        if (portChoice === 'manual') {
+          const manualPort = await input({ message: 'Enter port number:' });
+          port = parseInt(manualPort);
+        } else {
+          port = portChoice;
+        }
+      } catch { process.exit(0); }
+    } else {
+      try {
+        const manualPort = await input({ message: 'Enter port number (no unmapped ports detected):' });
+        port = parseInt(manualPort);
+      } catch { process.exit(0); }
+    }
+
+    if (!port || isNaN(port)) { console.error(chalk.red('✗ Invalid port')); process.exit(1); }
+
+    // Step 2: Subdomain
+    let subdomain;
+    try {
+      subdomain = await input({ message: 'Subdomain name (e.g. myapp):' });
+    } catch { process.exit(0); }
+    if (!subdomain?.trim()) { console.error(chalk.red('✗ Subdomain required')); process.exit(1); }
+
+    // Step 3: Description
+    let description = '';
+    try {
+      description = await input({ message: 'Description (optional):', default: '' });
+    } catch {}
+
+    // Step 4: Template
+    const templateChoices = listTemplates().map(t => ({ name: `${t.name.padEnd(15)} — ${t.description}`, value: t.name }));
+    let template = 'default';
+    try {
+      template = await select({ message: 'Nginx template:', choices: templateChoices });
+    } catch {}
+
+    // Step 5: Auto-deploy
+    let autoDeploy = false;
+    try {
+      autoDeploy = await confirm({ message: 'Auto-deploy DNS now?', default: true });
+    } catch {}
+
+    // Step 6: Confirm
+    const domain = config.accounts[0].zones[0].domain;
+    console.log(chalk.bold('\nSummary:'));
+    console.log(`  Subdomain:   ${chalk.cyan(subdomain.trim())}.${domain}`);
+    console.log(`  Port:        ${chalk.cyan(port)}`);
+    console.log(`  Description: ${description || chalk.gray('(none)')}`);
+    console.log(`  Template:    ${chalk.cyan(template)}`);
+    console.log(`  Auto-deploy: ${autoDeploy ? chalk.green('yes') : chalk.yellow('no')}`);
+
+    let doIt;
+    try {
+      doIt = await confirm({ message: 'Apply?', default: true });
+    } catch { doIt = false; }
+    if (!doIt) { console.log(chalk.yellow('Cancelled.')); return; }
+
+    // Execute
+    const accountId = config.accounts[0].id;
+    const zoneId = config.accounts[0].zones[0].zone_id;
+    addMapping(accountId, zoneId, subdomain.trim(), port, description, 'http', { template });
+    logAudit('mapping_added', { subdomain: subdomain.trim(), port, template, user: 'cli:wizard' });
+    notify('mapping_added', { subdomain: subdomain.trim(), port, description });
+    console.log(chalk.green(`\n✓ Added ${subdomain.trim()}.${domain} → localhost:${port}`));
+
+    if (autoDeploy) {
+      generateAllNginxConfigs();
+      console.log(chalk.green('✓ nginx configs generated'));
+      const { loadMappings } = require('./config');
+      const { mappings: zm } = loadMappings(accountId, zoneId);
+      const zone = config.accounts[0].zones[0];
+      await deployMappingsForZone(accountId, zoneId, zone.domain, zone.tunnel_id, zm);
+      console.log(chalk.green('✓ DNS deployed'));
+      notify('deploy_success', { count: 1 });
+    } else {
+      console.log(chalk.blue('\nNext: run `cloudflare-router generate && cloudflare-router deploy`'));
+    }
+
+    console.log(chalk.bold.green('\n🎉 Done!'));
   });
 
 program.parse();

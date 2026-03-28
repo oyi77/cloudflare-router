@@ -132,19 +132,24 @@ async function saveMappingsSafe(accountId, zoneId, data) {
   });
 }
 
-function addMapping(accountId, zoneId, subdomain, port, description = '', protocol = 'http') {
+function addMapping(accountId, zoneId, subdomain, port, description = '', protocol = 'http', opts = {}) {
   const data = loadMappings(accountId, zoneId);
   const existing = data.mappings.find(m => m.subdomain === subdomain);
   if (existing) {
     existing.port = port;
     existing.description = description;
     existing.protocol = protocol;
+    if (opts.template) existing.template = opts.template;
+    if (opts.nginx_extra) existing.nginx_extra = opts.nginx_extra;
     existing.updated_at = new Date().toISOString();
   } else {
-    data.mappings.push({
+    const entry = {
       subdomain, port: parseInt(port), description, protocol,
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(), enabled: true
-    });
+    };
+    if (opts.template) entry.template = opts.template;
+    if (opts.nginx_extra) entry.nginx_extra = opts.nginx_extra;
+    data.mappings.push(entry);
   }
   saveMappings(accountId, zoneId, data);
   return data.mappings;

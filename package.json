@@ -1,6 +1,6 @@
 {
   "name": "@oyi77/cloudflare-router",
-  "version": "2.2.3",
+  "version": "2.3.0",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   },
@@ -66,6 +66,7 @@
     "darwin"
   ],
   "dependencies": {
+    "@inquirer/prompts": "^8.3.2",
     "axios": "^1.6.0",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",

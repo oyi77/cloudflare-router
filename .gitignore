@@ -10,3 +10,5 @@ tunnel/
 *.bak*
 mappings.yml
 portless.yml
+backups/
+logs/audit.log

@@ -2,33 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { loadConfig, getConfigDir, getAllMappings } = require('./config');
+const { generateFromTemplate } = require('./templates');
+const { logAudit } = require('./audit');
 
 function generateNginxConfig(mapping, listenPort) {
-  return `server {
-    listen ${listenPort};
-    server_name ${mapping.full_domain};
-
-    location / {
-        proxy_pass http://127.0.0.1:${mapping.port};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
-    }
-
-    location /cf-health {
-        return 200 '{"status":"ok","service":"${mapping.subdomain}","domain":"${mapping.domain}"}';
-        add_header Content-Type application/json;
-    }
-}
-`;
+  // Use template system if template is set; otherwise use default
+  return generateFromTemplate(mapping, listenPort);
 }
 
 function generateAllNginxConfigs() {
@@ -38,18 +17,26 @@ function generateAllNginxConfigs() {
 
   if (!fs.existsSync(sitesDir)) fs.mkdirSync(sitesDir, { recursive: true });
 
+  // Auto-backup before generate if auto_backup enabled (default: true)
+  if (config.server?.auto_backup !== false) {
+    try {
+      const { createAutoBackup } = require('./backup');
+      createAutoBackup();
+    } catch (e) { /* ignore backup errors */ }
+  }
+
   const generated = [];
   mappings.filter(m => m.enabled !== false).forEach(mapping => {
     const nginxConfig = generateNginxConfig(mapping, config.nginx.listen_port);
     const filename = `${mapping.account_id}_${mapping.zone_id}_${mapping.subdomain || 'root'}.conf`;
     const filepath = path.join(sitesDir, filename);
     fs.writeFileSync(filepath, nginxConfig);
-    generated.push({ file: filepath, domain: mapping.full_domain, account: mapping.account_name });
+    generated.push({ file: filepath, domain: mapping.full_domain, account: mapping.account_name, template: mapping.template || 'default' });
   });
 
   const existingFiles = fs.readdirSync(sitesDir).filter(f => f.endsWith('.conf'));
   const generatedFilenames = generated.map(g => path.basename(g.file));
-  
+
   existingFiles.forEach(file => {
     if (!generatedFilenames.includes(file)) {
       fs.unlinkSync(path.join(sitesDir, file));
@@ -68,6 +55,9 @@ ${includes}
 }
 `;
   fs.writeFileSync(path.join(getConfigDir(), 'nginx', 'nginx.conf'), mainConfig);
+
+  logAudit('generate', { total: generated.length, user: 'system' });
+
   return { site_configs: generated, total: generated.length };
 }
 

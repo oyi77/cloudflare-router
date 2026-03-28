@@ -1,8 +1,13 @@
 const { execSync } = require('child_process');
-const { loadConfig, loadMappings, addMapping, removeMapping, toggleMapping } = require('./config');
+const net = require('net');
+const { loadConfig, loadMappings, addMapping, removeMapping, toggleMapping, getAllMappings } = require('./config');
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
 const { generateTunnelConfig, getTunnelStatus } = require('./tunnel');
 const { deployAllMappings, listDNSRecords, verifyToken } = require('./cloudflare');
+const { discoverPorts, getUnmappedCandidates } = require('./discovery');
+const { rollback, listRecentBackups } = require('./backup');
+const { readAudit, auditStats } = require('./audit');
+const { getNotifConfig, saveNotifConfig } = require('./notifier');
 
 const TOOLS = [
   {
@@ -92,6 +97,47 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {},
+      required: []
+    }
+  },
+  {
+    name: 'cloudflare_router_discover_ports',
+    description: 'Scan localhost for listening ports and show which are already mapped to subdomains',
+    inputSchema: { type: 'object', properties: { unmapped_only: { type: 'boolean', description: 'Return only unmapped ports' } }, required: [] }
+  },
+  {
+    name: 'cloudflare_router_rollback',
+    description: 'Restore CF-Router mappings from the most recent auto-backup',
+    inputSchema: { type: 'object', properties: { file: { type: 'string', description: 'Specific backup filename (optional, defaults to most recent)' } }, required: [] }
+  },
+  {
+    name: 'cloudflare_router_audit_log',
+    description: 'Get recent deployment audit log entries',
+    inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'Max entries to return', default: 20 }, action: { type: 'string', description: 'Filter by action type' } }, required: [] }
+  },
+  {
+    name: 'cloudflare_router_health_status',
+    description: 'Ping all mapped services and return up/down status with latency for each',
+    inputSchema: { type: 'object', properties: {}, required: [] }
+  },
+  {
+    name: 'cloudflare_router_watch_status',
+    description: 'Get a full snapshot: nginx status, tunnel status, and health of all services',
+    inputSchema: { type: 'object', properties: {}, required: [] }
+  },
+  {
+    name: 'cloudflare_router_configure_notifications',
+    description: 'Configure Telegram or webhook notifications for CF-Router events',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        telegram_enabled: { type: 'boolean' },
+        telegram_bot_token: { type: 'string' },
+        telegram_chat_id: { type: 'string' },
+        webhook_enabled: { type: 'boolean' },
+        webhook_url: { type: 'string' },
+        webhook_events: { type: 'array', items: { type: 'string' } }
+      },
       required: []
     }
   },
@@ -197,6 +243,74 @@ async function handleToolCall(name, args) {
       } catch (error) {
         return { success: false, error: error.message };
       }
+    }
+
+    case 'cloudflare_router_discover_ports': {
+      const ports = discoverPorts();
+      const result = args.unmapped_only ? ports.filter(p => !p.mapped) : ports;
+      return { content: [{ type: 'text', text: JSON.stringify({ ports: result, total: result.length, unmapped: result.filter(p => !p.mapped).length }, null, 2) }] };
+    }
+
+    case 'cloudflare_router_rollback': {
+      const result = rollback(args.file || null);
+      return { content: [{ type: 'text', text: `Restored from backup: ${result.file}\nTimestamp: ${result.timestamp}\nRun generate to apply nginx changes.` }] };
+    }
+
+    case 'cloudflare_router_audit_log': {
+      const entries = readAudit({ limit: args.limit || 20, action: args.action || null });
+      return { content: [{ type: 'text', text: JSON.stringify({ entries, stats: auditStats() }, null, 2) }] };
+    }
+
+    case 'cloudflare_router_health_status': {
+      const mappings = getAllMappings();
+      const seen = new Set();
+      const unique = mappings.filter(m => { if (seen.has(m.port)) return false; seen.add(m.port); return true; });
+      const results = await Promise.all(unique.map(m => new Promise(resolve => {
+        const start = Date.now();
+        const socket = new net.Socket();
+        socket.setTimeout(2000);
+        socket.connect(m.port, '127.0.0.1', () => { const lat = Date.now() - start; socket.destroy(); resolve({ subdomain: m.subdomain, port: m.port, up: true, latency: lat }); });
+        socket.on('error', () => { socket.destroy(); resolve({ subdomain: m.subdomain, port: m.port, up: false, latency: null }); });
+        socket.on('timeout', () => { socket.destroy(); resolve({ subdomain: m.subdomain, port: m.port, up: false, latency: null }); });
+      })));
+      const up = results.filter(r => r.up).length;
+      return { content: [{ type: 'text', text: JSON.stringify({ services: results, summary: { total: results.length, up, down: results.length - up } }, null, 2) }] };
+    }
+
+    case 'cloudflare_router_watch_status': {
+      const config = loadConfig();
+      const mappings = getAllMappings();
+      const nginx = getNginxStatus();
+      const tunnel = getTunnelStatus();
+      const seen = new Set();
+      const unique = mappings.filter(m => { if (seen.has(m.port)) return false; seen.add(m.port); return true; }).slice(0, 30);
+      const services = await Promise.all(unique.map(m => new Promise(resolve => {
+        const start = Date.now();
+        const socket = new net.Socket();
+        socket.setTimeout(1500);
+        socket.connect(m.port, '127.0.0.1', () => { socket.destroy(); resolve({ subdomain: m.subdomain, port: m.port, domain: m.full_domain, up: true, latency: Date.now() - start }); });
+        socket.on('error', () => { socket.destroy(); resolve({ subdomain: m.subdomain, port: m.port, domain: m.full_domain, up: false, latency: null }); });
+        socket.on('timeout', () => { socket.destroy(); resolve({ subdomain: m.subdomain, port: m.port, domain: m.full_domain, up: false, latency: null }); });
+      })));
+      return { content: [{ type: 'text', text: JSON.stringify({ nginx, tunnel, accounts: config.accounts?.length, mappings: mappings.length, services, checked_at: new Date().toISOString() }, null, 2) }] };
+    }
+
+    case 'cloudflare_router_configure_notifications': {
+      const current = getNotifConfig();
+      const updated = {
+        telegram: {
+          enabled: args.telegram_enabled ?? current.telegram?.enabled ?? false,
+          bot_token: args.telegram_bot_token || current.telegram?.bot_token || '',
+          chat_id: args.telegram_chat_id || current.telegram?.chat_id || '',
+        },
+        webhook: {
+          enabled: args.webhook_enabled ?? current.webhook?.enabled ?? false,
+          url: args.webhook_url || current.webhook?.url || '',
+          events: args.webhook_events || current.webhook?.events || [],
+        },
+      };
+      saveNotifConfig(updated);
+      return { content: [{ type: 'text', text: `Notifications configured. Telegram: ${updated.telegram.enabled ? 'enabled' : 'disabled'}, Webhook: ${updated.webhook.enabled ? 'enabled' : 'disabled'}` }] };
     }
 
     case 'cloudflare_router_get_config': {
