@@ -502,10 +502,10 @@
     </div>
   </div>
 
-  <div class="modal" id="add-account-modal">
+  <div class="modal" id="add-account-modal" role="dialog" aria-labelledby="add-account-modal-title" aria-modal="true">
     <div class="modal-box">
       <div class="modal-hdr">
-        <h2>Add Cloudflare Account</h2><button class="close-btn"
+        <h2 id="add-account-modal-title">Add Cloudflare Account</h2><button class="close-btn"
           onclick="closeModal('add-account-modal')">&times;</button>
       </div>
       <form onsubmit="addAccount(event)">
@@ -670,7 +670,7 @@
       btn.disabled = loading;
     }
 
-    function showModal(id) { document.getElementById(id).style.display = 'block'; }
+    function showModal(id) { const el = document.getElementById(id); el.style.display = 'block'; const focusable = el.querySelector('input, button, select, textarea, a[href]'); if (focusable) focusable.focus(); }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
     function showLogin() {
@@ -1777,9 +1777,9 @@
     function addSettingsModals() {
       const modalsHtml = `
     <!-- Edit Account Modal -->
-    <div class="modal" id="edit-account-modal">
+    <div class="modal" id="edit-account-modal" role="dialog" aria-labelledby="edit-account-modal-title" aria-modal="true">
       <div class="modal-box">
-        <div class="modal-hdr"><h2>Edit Account</h2><button class="close-btn" onclick="closeModal('edit-account-modal')">&times;</button></div>
+        <div class="modal-hdr"><h2 id="edit-account-modal-title">Edit Account</h2><button class="close-btn" onclick="closeModal('edit-account-modal')">&times;</button></div>
         <form onsubmit="saveEditedAccount(event)">
           <input type="hidden" id="edit-acc-id">
           <div style="margin-bottom:12px"><label>Account Name</label><input class="input" id="edit-acc-name" required></div>
@@ -1791,9 +1791,9 @@
     </div>
     
     <!-- Edit Server Modal -->
-    <div class="modal" id="edit-server-modal">
+    <div class="modal" id="edit-server-modal" role="dialog" aria-labelledby="edit-server-modal-title" aria-modal="true">
       <div class="modal-box">
-        <div class="modal-hdr"><h2>Edit Server</h2><button class="close-btn" onclick="closeModal('edit-server-modal')">&times;</button></div>
+        <div class="modal-hdr"><h2 id="edit-server-modal-title">Edit Server</h2><button class="close-btn" onclick="closeModal('edit-server-modal')">&times;</button></div>
         <form onsubmit="saveEditedServer(event)">
           <input type="hidden" id="edit-server-id">
           <div style="margin-bottom:12px"><label>Server Name</label><input class="input" id="edit-server-name" required></div>
@@ -1811,9 +1811,9 @@
     </div>
     
     <!-- Edit Portless Modal -->
-    <div class="modal" id="edit-portless-modal">
+    <div class="modal" id="edit-portless-modal" role="dialog" aria-labelledby="edit-portless-modal-title" aria-modal="true">
       <div class="modal-box">
-        <div class="modal-hdr"><h2>Edit Portless Service</h2><button class="close-btn" onclick="closeModal('edit-portless-modal')">&times;</button></div>
+        <div class="modal-hdr"><h2 id="edit-portless-modal-title">Edit Portless Service</h2><button class="close-btn" onclick="closeModal('edit-portless-modal')">&times;</button></div>
         <form onsubmit="saveEditedPortless(event)">
           <input type="hidden" id="edit-portless-name">
           <div style="margin-bottom:12px"><label>Service Name</label><input class="input" id="edit-portless-name" required></div>
@@ -1842,6 +1842,16 @@
     };
 
     checkAuth();
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        const openModals = document.querySelectorAll('.modal');
+        openModals.forEach(function(mod) {
+          if (mod.style.display === 'block') {
+            closeModal(mod.id);
+          }
+        });
+      }
+    });
   </script>
 </body>
 
