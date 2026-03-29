@@ -670,7 +670,7 @@
       btn.disabled = loading;
     }
 
-    function showModal(id) { const el = document.getElementById(id); el.style.display = 'block'; const focusable = el.querySelector('input, button, select, textarea, a[href]'); if (focusable) focusable.focus(); }
+    function showModal(id) { const el = document.getElementById(id); el.style.display = 'flex'; const focusable = el.querySelector('input, button, select, textarea, a[href]'); if (focusable) focusable.focus(); }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
     function showLogin() {
