@@ -43,28 +43,20 @@ function generateAllNginxConfigs() {
     }
   });
 
-  const includes = generated.map(g => `    include ${g.file};`).join('\n');
-  const mainConfig = `events { worker_connections 1024; }
-http {
-    sendfile on; tcp_nopush on; tcp_nodelay on; keepalive_timeout 65;
-    access_log /var/log/nginx/cloudflare-router-access.log;
-    error_log /var/log/nginx/cloudflare-router-error.log;
-    gzip on; gzip_vary on; gzip_proxied any; gzip_comp_level 6;
-    gzip_types text/plain text/css application/json application/javascript text/xml;
-${includes}
-}
-`;
-  fs.writeFileSync(path.join(getConfigDir(), 'nginx', 'nginx.conf'), mainConfig);
+  // Write flat includes file (no events/http blocks) so /etc/nginx/nginx.conf can safely include it
+  const activeIncludes = generated.map(g => `include ${g.file};`).join('\n') + '\n';
+  fs.writeFileSync(path.join(getConfigDir(), 'nginx', 'sites-active.conf'), activeIncludes);
 
+  reloadNginx();
   logAudit('generate', { total: generated.length, user: 'system' });
 
   return { site_configs: generated, total: generated.length };
 }
 
-function reloadNginx(configPath) {
+function reloadNginx() {
   try {
-    execSync(`nginx -t -c ${configPath}`, { stdio: 'pipe' });
-    execSync(`nginx -s reload -c ${configPath}`, { stdio: 'pipe' });
+    execSync('sudo nginx -t', { stdio: 'pipe' });
+    execSync('sudo nginx -s reload', { stdio: 'pipe' });
     return { success: true };
   } catch (error) {
     return { success: false, message: error.message };
