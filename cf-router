@@ -3,15 +3,22 @@
 CF-Router Manager
 ================
 Unified routing for all OpenClaw applications.
-Supports three modes: port, socket, portless
+Manages three layers: nginx (local), Cloudflare DNS, Cloudflare Tunnel.
 
 Usage:
-    cf-router status      - Show all apps and their status
-    cf-router generate   - Generate nginx configs
-    cf-router reload      - Reload nginx with new config
-    cf-router discover    - Discover portless apps
-    cf-router add <name>  - Add a new app
-    cf-router remove <name> - Remove an app
+    cf-router status [--no-cf] [--json]  - Show all apps and their status
+    cf-router deploy [--dry-run] [--json] - Push apps.yaml to Cloudflare (DNS + tunnel)
+    cf-router sync [--json]              - Drift check between apps.yaml vs DNS vs tunnel
+    cf-router add <name> --port PORT [--hostname HOST] [--proxy-host HOST] [--health-check PATH] [--no-tls-verify] [--no-deploy] [--dry-run]
+    cf-router remove <name> [--no-deploy] [--dry-run] - Remove from all layers
+    cf-router enable <name> [--no-deploy] / disable <name> [--no-deploy] - Toggle app
+    cf-router edit <name>                - Interactive field editor
+    cf-router dns list|add|remove|check   - Direct DNS management
+    cf-router tunnel show|update|diff     - Direct tunnel management
+    cf-router generate                   - Generate nginx configs
+    cf-router reload                     - Reload nginx with new config
+    cf-router discover                   - Discover portless apps
+    cf-router daemon / serve             - Metrics server + config watcher
 """
 
 import os
@@ -22,16 +29,111 @@ import subprocess
 import time
 import threading
 import json
+import shutil
+import urllib.request
+import urllib.error
+import urllib.parse
+import hashlib
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from urllib.parse import urlparse
 
 CONFIG_DIR = Path.home() / ".cloudflare-router"
 APPS_CONFIG = CONFIG_DIR / "apps.yaml"
+CONFIG_FILE = CONFIG_DIR / "config.yml"
 NGINX_SITES_DIR = CONFIG_DIR / "nginx" / "sites"
 NGINX_MAIN_CONFIG = CONFIG_DIR / "nginx" / "nginx.conf"
 NGINX_PROXY_CONFIG = CONFIG_DIR / "nginx" / "proxy.conf"
 LISTEN_PORT = 6969
+BACKUP_DIR = CONFIG_DIR / "backups"
+
+
+class CloudflareAPIError(Exception):
+    """Exception raised for Cloudflare API errors."""
+    pass
+
+
+class CloudflareClient:
+    """Cloudflare API client using stdlib only."""
+
+    def __init__(self, email: str, api_key: str, account_id: str, zone_id: str, tunnel_id: str):
+        self.email = email
+        self.api_key = api_key
+        self.account_id = account_id
+        self.zone_id = zone_id
+        self.tunnel_id = tunnel_id
+        self.api_base = "https://api.cloudflare.com/client/v4"
+
+    def _request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Dict:
+        """Make authenticated request to Cloudflare API."""
+        url = f"{self.api_base}{endpoint}"
+        headers = {
+            'X-Auth-Email': self.email,
+            'X-Auth-Key': self.api_key,
+            'Content-Type': 'application/json'
+        }
+
+        req = urllib.request.Request(
+            url,
+            headers=headers,
+            method=method
+        )
+
+        if data:
+            req.data = json.dumps(data).encode('utf-8')
+
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                if not result.get('success', False):
+                    errors = result.get('errors', [])
+                    raise CloudflareAPIError(f"API Error: {errors}")
+                return result.get('result', {})
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8')
+            try:
+                error_json = json.loads(error_body)
+                errors = error_json.get('errors', [])
+                raise CloudflareAPIError(f"HTTP {e.code}: {errors}")
+            except json.JSONDecodeError:
+                raise CloudflareAPIError(f"HTTP {e.code}: {error_body}")
+        except urllib.error.URLError as e:
+            raise CloudflareAPIError(f"Connection error: {e.reason}")
+
+    def list_dns_records(self) -> List[Dict]:
+        """List all DNS records for the zone."""
+        result = self._request('GET', f'/zones/{self.zone_id}/dns_records')
+        return result if isinstance(result, list) else []
+
+    def create_dns_record(self, name: str, record_type: str = 'CNAME', content: str = None, proxied: bool = True) -> Dict:
+        """Create a DNS record."""
+        if content is None:
+            content = f"{self.tunnel_id}.cfargotunnel.com"
+
+        data = {
+            'type': record_type,
+            'name': name,
+            'content': content,
+            'ttl': 1,
+            'proxied': proxied
+        }
+        return self._request('POST', f'/zones/{self.zone_id}/dns_records', data)
+
+    def delete_dns_record(self, record_id: str) -> None:
+        """Delete a DNS record."""
+        self._request('DELETE', f'/zones/{self.zone_id}/dns_records/{record_id}')
+
+    def get_tunnel_config(self) -> Dict:
+        """Get current tunnel configuration."""
+        result = self._request('GET', f'/accounts/{self.account_id}/cfd_tunnel/{self.tunnel_id}/configurations')
+        return result.get('config', {})
+
+    def update_tunnel_config(self, ingress: List[Dict]) -> Dict:
+        """Update tunnel configuration with new ingress rules."""
+        data = {'config': {'ingress': ingress}}
+        result = self._request('PUT', f'/accounts/{self.account_id}/cfd_tunnel/{self.tunnel_id}/configurations', data)
+        return result
+
 
 class AppConfig:
     def __init__(self, name: str, config: Dict[str, Any]):
@@ -45,6 +147,7 @@ class AppConfig:
         self.enabled = config.get("enabled", True)
         self.no_tls_verify = config.get("no_tls_verify", False)
         self.extra_headers = config.get("extra_headers", [])
+        self.proxy_host = config.get("proxy_host", None)
 
     def get_target(self) -> str:
         if self.mode == "socket":
@@ -62,8 +165,6 @@ class AppConfig:
             if target.startswith("unix:"):
                 return os.path.exists(self.path)
             elif target.startswith("http"):
-                import urllib.request
-                import urllib.error
                 url = target + self.health_check
                 req = urllib.request.Request(url, method="GET")
                 req.add_header("Host", self.hostname or "localhost")
@@ -73,28 +174,189 @@ class AppConfig:
             pass
         return False
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for YAML serialization."""
+        result = {
+            'mode': self.mode,
+            'enabled': self.enabled,
+        }
+        if self.hostname:
+            result['hostname'] = self.hostname
+        if self.host != "127.0.0.1":
+            result['host'] = self.host
+        if self.port is not None:
+            result['port'] = self.port
+        if self.path:
+            result['path'] = self.path
+        if self.health_check != "/":
+            result['health_check'] = self.health_check
+        if self.no_tls_verify:
+            result['no_tls_verify'] = True
+        if self.extra_headers:
+            result['extra_headers'] = self.extra_headers
+        if self.proxy_host:
+            result['proxy_host'] = self.proxy_host
+        return result
+
+
+def parse_flags(args: List[str], defaults: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    """
+    Parse command-line flags.
+    Returns tuple of (parsed_flags, remaining_args).
+    Supports --flag value, --no-flag, --flag=value.
+    """
+    flags = defaults.copy()
+    remaining = []
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg.startswith('--'):
+            if arg.startswith('--no-'):
+                # --no-flag sets no_flag=True
+                flag_name = 'no_' + arg[5:].replace('-', '_')
+                flags[flag_name] = True
+            elif '=' in arg:
+                key, value = arg[2:].split('=', 1)
+                flags[key.replace('-', '_')] = value
+            else:
+                flag_name = arg[2:].replace('-', '_')
+                if i + 1 < len(args) and not args[i + 1].startswith('--'):
+                    flags[flag_name] = args[i + 1]
+                    i += 1
+                else:
+                    flags[flag_name] = True
+        else:
+            remaining.append(arg)
+        i += 1
+
+    return flags, remaining
+
+
+def load_cf_config() -> Dict[str, Any]:
+    """Load Cloudflare configuration from config.yml."""
+    if not CONFIG_FILE.exists():
+        print(f"Error: {CONFIG_FILE} not found")
+        sys.exit(1)
+
+    with open(CONFIG_FILE) as f:
+        config = yaml.safe_load(f)
+
+    accounts = config.get('accounts', [])
+    if not accounts:
+        print("Error: No accounts configured in config.yml")
+        sys.exit(1)
+
+    account = accounts[0]
+    zones = account.get('zones', [])
+    if not zones:
+        print("Error: No zones configured in config.yml")
+        sys.exit(1)
+
+    zone = zones[0]
+
+    return {
+        'email': account.get('email'),
+        'api_key': account.get('api_key'),
+        'account_id': config.get('cloudflare', {}).get('account_id') or account.get('account_id'),
+        'zone_id': zone.get('zone_id'),
+        'tunnel_id': zone.get('tunnel_id'),
+        'domain': zone.get('domain')
+    }
+
+
+def get_cf_client() -> CloudflareClient:
+    """Create and return a CloudflareClient instance."""
+    cf_config = load_cf_config()
+    return CloudflareClient(
+        email=cf_config['email'],
+        api_key=cf_config['api_key'],
+        account_id=cf_config['account_id'],
+        zone_id=cf_config['zone_id'],
+        tunnel_id=cf_config['tunnel_id']
+    )
+
+
+def backup_apps_yaml() -> Path:
+    """Create a backup of apps.yaml."""
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    backup_path = BACKUP_DIR / f"apps_{timestamp}.yaml"
+    shutil.copy2(APPS_CONFIG, backup_path)
+    return backup_path
+
+
+def rollback_apps_yaml(backup_path: Path) -> None:
+    """Rollback apps.yaml from backup."""
+    if backup_path.exists():
+        shutil.copy2(backup_path, APPS_CONFIG)
+        print(f"Rolled back to {backup_path.name}")
+    else:
+        print(f"Warning: Backup file not found: {backup_path}")
+
+
 def load_apps() -> Dict[str, AppConfig]:
     if not APPS_CONFIG.exists():
         print(f"Error: {APPS_CONFIG} not found")
         sys.exit(1)
-    
+
     with open(APPS_CONFIG) as f:
         data = yaml.safe_load(f)
-    
+
     apps = {}
     for name, config in data.get("apps", {}).items():
         apps[name] = AppConfig(name, config)
     return apps
 
+
+def save_apps(apps: Dict[str, AppConfig]) -> None:
+    """Save apps configuration to apps.yaml."""
+    with open(APPS_CONFIG) as f:
+        data = yaml.safe_load(f) or {}
+
+    data['apps'] = {name: app.to_dict() for name, app in apps.items()}
+
+    with open(APPS_CONFIG, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+def build_tunnel_ingress(apps: Dict[str, AppConfig], tunnel_id: str) -> List[Dict]:
+    """Build tunnel ingress rules from apps configuration."""
+    ingress = []
+
+    # Add rules for all enabled apps
+    for name, app in sorted(apps.items()):
+        if not app.enabled or not app.hostname:
+            continue
+
+        # Special case: hub.aitradepulse.com goes directly to port 9099
+        if app.hostname == "hub.aitradepulse.com":
+            service = f"http://127.0.0.1:9099"
+        else:
+            service = f"http://127.0.0.1:{LISTEN_PORT}"
+
+        ingress.append({
+            'hostname': app.hostname,
+            'service': service
+        })
+
+    # Add catch-all rule
+    ingress.append({
+        'service': 'http_status:404'
+    })
+
+    return ingress
+
+
 def generate_nginx_config(apps: Dict[str, AppConfig]) -> None:
     NGINX_SITES_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     config_parts = []
-    
+
     for name, app in apps.items():
         if not app.enabled:
             continue
-        
+
         if app.mode == "port":
             target = f"http://{app.host}:{app.port}"
         elif app.mode == "socket":
@@ -104,7 +366,9 @@ def generate_nginx_config(apps: Dict[str, AppConfig]) -> None:
         else:
             print(f"Skipping {name}: unknown mode {app.mode}")
             continue
-        
+
+        proxy_host_value = app.proxy_host if app.proxy_host else app.hostname
+
         config = f'''server {{
     listen {LISTEN_PORT};
     server_name {app.hostname};
@@ -115,7 +379,7 @@ def generate_nginx_config(apps: Dict[str, AppConfig]) -> None:
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host {app.hostname};
+        proxy_set_header Host {proxy_host_value};
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -132,7 +396,7 @@ def generate_nginx_config(apps: Dict[str, AppConfig]) -> None:
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host {app.hostname};
+        proxy_set_header Host {proxy_host_value};
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -142,7 +406,7 @@ def generate_nginx_config(apps: Dict[str, AppConfig]) -> None:
         proxy_read_timeout 60s;
     }}
 '''
-        
+
         config += f'''
     location /cf-health {{
         return 200 '{{"status":"ok","service":"{name}","domain":"{app.hostname}"}}';
@@ -151,66 +415,66 @@ def generate_nginx_config(apps: Dict[str, AppConfig]) -> None:
 }}
 '''
         config_parts.append((app.hostname, config))
-    
+
     config_parts.sort(key=lambda x: x[0])
-    
+
     for hostname, config in config_parts:
         safe_name = hostname.replace(".", "_")
         config_file = NGINX_SITES_DIR / f"cf_{safe_name}.conf"
         with open(config_file, "w") as f:
             f.write(config)
-    
+
     includes = "\n".join([
         f"    include {NGINX_SITES_DIR / f'cf_{hostname.replace('.', '_')}.conf'};"
         for hostname, _ in config_parts
     ])
-    
+
     # Default server block for unmatched subdomains
     default_server = f'''
     server {{
         listen {LISTEN_PORT} default_server;
         server_name _;
-        
+
         # Suppress server tokens to hide nginx version
         server_tokens off;
-        
+
         root {NGINX_SITES_DIR.parent / 'default'};
-        
+
         # Serve custom 404 page for all requests
         location / {{
             try_files /404.html =404;
         }}
-        
+
         # API clients get JSON response
         location ~* \\.(json|api)$ {{
             return 404 '{{"error":"not_found"}}';
             add_header Content-Type application/json;
             add_header X-Robots-Tag "noindex, nofollow";
         }}
-        
+
         # Health check for monitoring
         location = /cf-health {{
             return 200 '{{"status":"ok","service":"cf-router-default"}}';
             add_header Content-Type application/json;
         }}
-        
+
         # Block common scanner paths - return 444 (drop connection)
         location ~* \\.(env|git|svn|htaccess|htpasswd|DS_Store|bak|backup|sql|db|log|txt|xml|yml|yaml|toml|ini)$ {{
             return 444;
         }}
-        
+
         # Block sensitive directories
         location ~* ^/(wp-admin|wp-login|phpmyadmin|admin|administrator|config|backup|debug|test|shell) {{
             return 444;
         }}
-        
+
         # Block .env, .git, .svn files and all sub-paths
         location ~ ^/\\.(env|git|svn|htaccess)(/|$) {{
             return 444;
         }}
     }}
 '''
-    
+
     main_config = f'''events {{ worker_connections 1024; }}
 http {{
     sendfile on; tcp_nopush on; tcp_nodelay on; keepalive_timeout 65;
@@ -218,16 +482,17 @@ http {{
     error_log /var/log/nginx/cloudflare-router-error.log;
     gzip on; gzip_vary on; gzip_proxied any; gzip_comp_level 6;
     gzip_types text/plain text/css application/json application/javascript text/xml;
-    
+
 {includes}
 {default_server}
 }}
 '''
-    
+
     with open(NGINX_MAIN_CONFIG, "w") as f:
         f.write(main_config)
-    
+
     print(f"Generated config for {len(config_parts)} apps")
+
 
 def reload_nginx() -> bool:
     try:
@@ -239,124 +504,804 @@ def reload_nginx() -> bool:
         print(f"Error reloading nginx: {e.stderr.decode()}")
         return False
 
+
 def discover_portless() -> Dict[str, Any]:
     discovered = {}
-    portless_ports = []
-    
+
     try:
-        import urllib.request
         url = "http://127.0.0.1:1355/__portless__/apps"
         with urllib.request.urlopen(url, timeout=2) as resp:
             data = json.loads(resp.read().decode())
             for app in data.get("apps", []):
                 discovered[app["name"]] = app
-    except Exception as e:
+    except Exception:
         pass
-    
+
     return discovered
 
-def show_status(apps: Dict[str, AppConfig]) -> None:
-    print(f"\n{'='*60}")
+
+def show_status(apps: Dict[str, AppConfig], cf: Optional[CloudflareClient] = None, json_output: bool = False) -> None:
+    if json_output:
+        # Collect DNS and tunnel status
+        dns_records = {}
+        tunnel_ingress = {}
+
+        if cf:
+            try:
+                records = cf.list_dns_records()
+                dns_records = {r['name']: r for r in records if r['type'] == 'CNAME'}
+                tunnel_config = cf.get_tunnel_config()
+                tunnel_ingress = {r['hostname']: r['service'] for r in tunnel_config.get('ingress', []) if 'hostname' in r}
+            except CloudflareAPIError as e:
+                print(f"Warning: Could not fetch Cloudflare status: {e}", file=sys.stderr)
+
+        status_data = []
+        for name, app in sorted(apps.items()):
+            app_status = {
+                'name': name,
+                'enabled': app.enabled,
+                'hostname': app.hostname,
+                'mode': app.mode,
+                'healthy': app.is_healthy(),
+                'dns': app.hostname in dns_records if app.hostname else None,
+                'tunnel': app.hostname in tunnel_ingress if app.hostname else None,
+            }
+            status_data.append(app_status)
+
+        print(json.dumps(status_data, indent=2))
+        return
+
+    # Normal table output
+    print(f"\n{'='*80}")
     print(f"CF-Router Status")
-    print(f"{'='*60}")
-    print(f"{'App':<25} {'Mode':<10} {'Hostname':<35} {'Status':<10}")
-    print(f"{'-'*60}")
-    
-    for name, app in sorted(apps.items()):
-        status = "✓ healthy" if app.is_healthy() else "✗ down"
-        mode = app.mode
-        hostname = app.hostname or "-"
-        print(f"{name:<25} {mode:<10} {hostname:<35} {status:<10}")
-    
+    print(f"{'='*80}")
+
+    if cf:
+        try:
+            records = cf.list_dns_records()
+            dns_records = {r['name']: r for r in records if r['type'] == 'CNAME'}
+            tunnel_config = cf.get_tunnel_config()
+            tunnel_ingress = {r['hostname']: r['service'] for r in tunnel_config.get('ingress', []) if 'hostname' in r}
+
+            header = f"{'App':<20} {'Status':<8} {'Mode':<8} {'DNS':<8} {'Tunnel':<8} {'Hostname':<30}"
+            print(header)
+            print(f"{'-'*80}")
+
+            for name, app in sorted(apps.items()):
+                status = "✓" if app.is_healthy() else "✗"
+                enabled = "enabled" if app.enabled else "disabled"
+                dns = "✓" if app.hostname and app.hostname in dns_records else "-"
+                tunnel = "✓" if app.hostname and app.hostname in tunnel_ingress else "-"
+                hostname = app.hostname or "-"
+
+                print(f"{name:<20} {status:<8} {enabled:<8} {dns:<8} {tunnel:<8} {hostname:<30}")
+        except CloudflareAPIError as e:
+            print(f"Warning: Could not fetch Cloudflare status: {e}")
+            print(f"Showing local status only...")
+            print(f"\n{'App':<25} {'Mode':<10} {'Hostname':<35} {'Status':<10}")
+            print(f"{'-'*60}")
+
+            for name, app in sorted(apps.items()):
+                status = "✓ healthy" if app.is_healthy() else "✗ down"
+                mode = app.mode
+                hostname = app.hostname or "-"
+                print(f"{name:<25} {mode:<10} {hostname:<35} {status:<10}")
+    else:
+        print(f"{'App':<25} {'Mode':<10} {'Hostname':<35} {'Status':<10}")
+        print(f"{'-'*60}")
+
+        for name, app in sorted(apps.items()):
+            status = "✓ healthy" if app.is_healthy() else "✗ down"
+            mode = app.mode
+            hostname = app.hostname or "-"
+            print(f"{name:<25} {mode:<10} {hostname:<35} {status:<10}")
+
     print(f"{'-'*60}")
     print(f"Total: {len(apps)} apps")
 
-def cmd_status(args: List[str]) -> None:
+
+def cmd_deploy(args: List[str]) -> None:
+    """Deploy apps.yaml configuration to Cloudflare (DNS + tunnel)."""
+    flags, _ = parse_flags(args, {'dry_run': False, 'json': False})
+    dry_run = flags.get('dry_run', False)
+    json_output = flags.get('json', False)
+
+    if dry_run and not json_output:
+        print("[DRY RUN] Deployment mode - no changes will be made")
+
     apps = load_apps()
-    show_status(apps)
+    cf = get_cf_client()
+
+    results = {
+        'dns': {'created': [], 'already_exists': [], 'errors': []},
+        'tunnel': {'updated': False, 'error': None}
+    }
+
+    # DNS Deployment
+    if not dry_run and not json_output:
+        print("Syncing DNS records...")
+    try:
+        records = cf.list_dns_records()
+        dns_records = {r['name']: r for r in records if r['type'] == 'CNAME'}
+
+        for name, app in sorted(apps.items()):
+            if not app.enabled or not app.hostname:
+                continue
+
+            target = f"{cf.tunnel_id}.cfargotunnel.com"
+
+            if app.hostname in dns_records:
+                results['dns']['already_exists'].append(name)
+                if not dry_run and not json_output:
+                    print(f"  ✓ {app.hostname} - already exists")
+            else:
+                results['dns']['created'].append(name)
+                if dry_run and not json_output:
+                    print(f"  [DRY RUN] Would create CNAME: {app.hostname} -> {target}")
+                elif not dry_run:
+                    cf.create_dns_record(app.hostname, 'CNAME', target)
+                    if not json_output:
+                        print(f"  ✓ Created CNAME: {app.hostname} -> {target}")
+    except CloudflareAPIError as e:
+        results['dns']['errors'].append(str(e))
+        if not json_output:
+            print(f"Error syncing DNS: {e}")
+
+    # Tunnel Deployment
+    if not dry_run and not json_output:
+        print("\nSyncing tunnel configuration...")
+    try:
+        ingress = build_tunnel_ingress(apps, cf.tunnel_id)
+
+        if dry_run and not json_output:
+            print(f"  [DRY RUN] Would update tunnel with {len(ingress)-1} ingress rules")
+            for rule in ingress:
+                if 'hostname' in rule:
+                    print(f"    {rule['hostname']} -> {rule['service']}")
+        elif not dry_run:
+            cf.update_tunnel_config(ingress)
+            results['tunnel']['updated'] = True
+            if not json_output:
+                print(f"  ✓ Updated tunnel with {len(ingress)-1} ingress rules")
+    except CloudflareAPIError as e:
+        results['tunnel']['error'] = str(e)
+        if not json_output:
+            print(f"Error syncing tunnel: {e}")
+
+    if json_output:
+        print(json.dumps(results, indent=2))
+    else:
+        print(f"\nDeployment summary:")
+        print(f"  DNS: {len(results['dns']['created'])} created, {len(results['dns']['already_exists'])} already exists")
+        if results['dns']['errors']:
+            print(f"  DNS errors: {len(results['dns']['errors'])}")
+        print(f"  Tunnel: {'updated' if results['tunnel']['updated'] else 'not updated'}")
+        if results['tunnel']['error']:
+            print(f"  Tunnel error: {results['tunnel']['error']}")
+
+
+def cmd_sync(args: List[str]) -> None:
+    """Check drift between apps.yaml, DNS, and tunnel configuration."""
+    flags, _ = parse_flags(args, {'json': False})
+    json_output = flags.get('json', False)
+
+    apps = load_apps()
+    cf = get_cf_client()
+
+    drift = {
+        'missing_dns': [],
+        'extra_dns': [],
+        'missing_tunnel': [],
+        'extra_tunnel': [],
+        'enabled_apps': [name for name, app in apps.items() if app.enabled and app.hostname]
+    }
+
+    # Check DNS
+    try:
+        records = cf.list_dns_records()
+        dns_records = {r['name']: r for r in records if r['type'] == 'CNAME'}
+
+        # Find missing DNS records
+        for name, app in apps.items():
+            if app.enabled and app.hostname and app.hostname not in dns_records:
+                drift['missing_dns'].append(app.hostname)
+
+        # Find extra DNS records
+        app_hostnames = {app.hostname for app in apps.values() if app.hostname}
+        for hostname in dns_records:
+            if hostname not in app_hostnames:
+                drift['extra_dns'].append(hostname)
+    except CloudflareAPIError as e:
+        print(f"Error checking DNS: {e}")
+        return
+
+    # Check tunnel
+    try:
+        tunnel_config = cf.get_tunnel_config()
+        tunnel_ingress = {r['hostname']: r['service'] for r in tunnel_config.get('ingress', []) if 'hostname' in r}
+
+        # Find missing tunnel rules
+        for name, app in apps.items():
+            if app.enabled and app.hostname and app.hostname not in tunnel_ingress:
+                drift['missing_tunnel'].append(app.hostname)
+
+        # Find extra tunnel rules
+        for hostname in tunnel_ingress:
+            if hostname not in app_hostnames:
+                drift['extra_tunnel'].append(hostname)
+    except CloudflareAPIError as e:
+        print(f"Error checking tunnel: {e}")
+        return
+
+    if json_output:
+        print(json.dumps(drift, indent=2))
+    else:
+        print("\nDrift Report:")
+        print(f"  Enabled apps in apps.yaml: {len(drift['enabled_apps'])}")
+        print(f"  Missing DNS records: {len(drift['missing_dns'])}")
+        if drift['missing_dns']:
+            for hostname in drift['missing_dns']:
+                print(f"    - {hostname}")
+        print(f"  Extra DNS records: {len(drift['extra_dns'])}")
+        if drift['extra_dns']:
+            for hostname in drift['extra_dns']:
+                print(f"    - {hostname}")
+        print(f"  Missing tunnel rules: {len(drift['missing_tunnel'])}")
+        if drift['missing_tunnel']:
+            for hostname in drift['missing_tunnel']:
+                print(f"    - {hostname}")
+        print(f"  Extra tunnel rules: {len(drift['extra_tunnel'])}")
+        if drift['extra_tunnel']:
+            for hostname in drift['extra_tunnel']:
+                print(f"    - {hostname}")
+
+        if not any([drift['missing_dns'], drift['extra_dns'], drift['missing_tunnel'], drift['extra_tunnel']]):
+            print("\n✓ All configurations are in sync")
+
+
+def cmd_add(args: List[str]) -> None:
+    """Add a new app to all three layers (nginx, DNS, tunnel)."""
+    flags, remaining = parse_flags(args, {
+        'port': None,
+        'hostname': None,
+        'proxy_host': None,
+        'health_check': '/',
+        'no_tls_verify': False,
+        'no_deploy': False,
+        'dry_run': False
+    })
+
+    if not remaining:
+        print("Usage: cf-router add <name> --port PORT [options]")
+        sys.exit(1)
+
+    name = remaining[0]
+    port = flags.get('port')
+
+    if port is None:
+        print("Error: --port is required")
+        sys.exit(1)
+
+    try:
+        port = int(port)
+    except ValueError:
+        print("Error: port must be a number")
+        sys.exit(1)
+
+    apps = load_apps()
+
+    if name in apps:
+        print(f"App {name} already exists")
+        sys.exit(1)
+
+    hostname = flags.get('hostname') or f"{name}.aitradepulse.com"
+
+    # Create app config
+    app = AppConfig(name, {
+        'mode': 'port',
+        'port': port,
+        'hostname': hostname,
+        'enabled': True,
+        'health_check': flags.get('health_check', '/'),
+        'no_tls_verify': flags.get('no_tls_verify', False)
+    })
+
+    if flags.get('proxy_host'):
+        app.proxy_host = flags['proxy_host']
+
+    dry_run = flags.get('dry_run', False)
+    no_deploy = flags.get('no_deploy', False)
+
+    if dry_run:
+        print("[DRY RUN] Would add app:")
+        print(f"  Name: {name}")
+        print(f"  Hostname: {hostname}")
+        print(f"  Port: {port}")
+        if not no_deploy:
+            print(f"  Would create DNS CNAME: {hostname}")
+            print(f"  Would update tunnel config")
+        print(f"  Would regenerate nginx config")
+        return
+
+    # Backup before changes
+    backup_path = backup_apps_yaml()
+
+    try:
+        # Add to apps.yaml
+        apps[name] = app
+        save_apps(apps)
+        print(f"✓ Added app to apps.yaml: {name}")
+
+        if not no_deploy:
+            # Create DNS record
+            cf = get_cf_client()
+            try:
+                cf.create_dns_record(hostname, 'CNAME')
+                print(f"✓ Created DNS CNAME: {hostname}")
+            except CloudflareAPIError as e:
+                print(f"✗ Failed to create DNS record: {e}")
+                print("  App was added locally. Run 'cf-router deploy' to sync to Cloudflare.")
+
+            # Update tunnel config
+            try:
+                ingress = build_tunnel_ingress(apps, cf.tunnel_id)
+                cf.update_tunnel_config(ingress)
+                print(f"✓ Updated tunnel config")
+            except CloudflareAPIError as e:
+                print(f"✗ Failed to update tunnel: {e}")
+                print("  App was added locally. Run 'cf-router deploy' to sync to Cloudflare.")
+
+        # Regenerate nginx config
+        generate_nginx_config(apps)
+        print(f"✓ Regenerated nginx config")
+
+        print(f"\nApp {name} added successfully")
+        if not no_deploy:
+            print("Run 'cf-router reload' to apply nginx changes")
+
+    except Exception as e:
+        print(f"Error: {e}")
+        rollback_apps_yaml(backup_path)
+        sys.exit(1)
+
+
+def cmd_remove(args: List[str]) -> None:
+    """Remove an app from all three layers."""
+    flags, remaining = parse_flags(args, {'no_deploy': False, 'dry_run': False})
+
+    if not remaining:
+        print("Usage: cf-router remove <name>")
+        sys.exit(1)
+
+    name = remaining[0]
+    apps = load_apps()
+
+    if name not in apps:
+        print(f"App {name} not found")
+        sys.exit(1)
+
+    app = apps[name]
+    dry_run = flags.get('dry_run', False)
+    no_deploy = flags.get('no_deploy', False)
+
+    if dry_run:
+        print("[DRY RUN] Would remove app:")
+        print(f"  Name: {name}")
+        if app.hostname:
+            print(f"  Would remove DNS CNAME: {app.hostname}")
+        if not no_deploy:
+            print(f"  Would update tunnel config")
+        print(f"  Would remove from apps.yaml")
+        print(f"  Would regenerate nginx config")
+        return
+
+    # Backup before changes
+    backup_path = backup_apps_yaml()
+
+    try:
+        if not no_deploy and app.hostname:
+            # Remove DNS record
+            cf = get_cf_client()
+            try:
+                records = cf.list_dns_records()
+                for record in records:
+                    if record['type'] == 'CNAME' and record['name'] == app.hostname:
+                        cf.delete_dns_record(record['id'])
+                        print(f"✓ Deleted DNS CNAME: {app.hostname}")
+                        break
+            except CloudflareAPIError as e:
+                print(f"✗ Failed to delete DNS record: {e}")
+                print("  App will be removed locally. DNS record may need manual cleanup.")
+
+            # Update tunnel config
+            try:
+                del apps[name]
+                ingress = build_tunnel_ingress(apps, cf.tunnel_id)
+                cf.update_tunnel_config(ingress)
+                print(f"✓ Updated tunnel config")
+            except CloudflareAPIError as e:
+                print(f"✗ Failed to update tunnel: {e}")
+                print("  App will be removed locally. Run 'cf-router deploy' to sync tunnel.")
+        else:
+            # Remove from local only
+            del apps[name]
+
+        # Save and regenerate
+        save_apps(apps)
+        print(f"✓ Removed from apps.yaml: {name}")
+
+        generate_nginx_config(apps)
+        print(f"✓ Regenerated nginx config")
+
+        print(f"\nApp {name} removed successfully")
+        print("Run 'cf-router reload' to apply nginx changes")
+
+    except Exception as e:
+        print(f"Error: {e}")
+        rollback_apps_yaml(backup_path)
+        sys.exit(1)
+
+
+def cmd_enable(args: List[str]) -> None:
+    """Enable an app."""
+    flags, remaining = parse_flags(args, {'no_deploy': False})
+
+    if not remaining:
+        print("Usage: cf-router enable <name>")
+        sys.exit(1)
+
+    name = remaining[0]
+    apps = load_apps()
+
+    if name not in apps:
+        print(f"App {name} not found")
+        sys.exit(1)
+
+    apps[name].enabled = True
+    save_apps(apps)
+
+    print(f"✓ Enabled app: {name}")
+
+    if not flags.get('no_deploy'):
+        cf = get_cf_client()
+        try:
+            # Update tunnel config
+            ingress = build_tunnel_ingress(apps, cf.tunnel_id)
+            cf.update_tunnel_config(ingress)
+            print(f"✓ Updated tunnel config")
+        except CloudflareAPIError as e:
+            print(f"✗ Failed to update tunnel: {e}")
+            print("  Run 'cf-router deploy' to sync to Cloudflare.")
+
+
+def cmd_disable(args: List[str]) -> None:
+    """Disable an app."""
+    flags, remaining = parse_flags(args, {'no_deploy': False})
+
+    if not remaining:
+        print("Usage: cf-router disable <name>")
+        sys.exit(1)
+
+    name = remaining[0]
+    apps = load_apps()
+
+    if name not in apps:
+        print(f"App {name} not found")
+        sys.exit(1)
+
+    apps[name].enabled = False
+    save_apps(apps)
+
+    print(f"✓ Disabled app: {name}")
+
+    if not flags.get('no_deploy'):
+        cf = get_cf_client()
+        try:
+            # Update tunnel config (DNS record is preserved)
+            ingress = build_tunnel_ingress(apps, cf.tunnel_id)
+            cf.update_tunnel_config(ingress)
+            print(f"✓ Updated tunnel config")
+        except CloudflareAPIError as e:
+            print(f"✗ Failed to update tunnel: {e}")
+            print("  Run 'cf-router deploy' to sync to Cloudflare.")
+
+
+def cmd_edit(args: List[str]) -> None:
+    """Interactive field editor for an app."""
+    if not args:
+        print("Usage: cf-router edit <name>")
+        sys.exit(1)
+
+    name = args[0]
+    apps = load_apps()
+
+    if name not in apps:
+        print(f"App {name} not found")
+        sys.exit(1)
+
+    app = apps[name]
+
+    # Display current values
+    print(f"\nEditing app: {name}")
+    print(f"Current configuration:")
+    print(f"  1. Hostname: {app.hostname}")
+    print(f"  2. Port: {app.port}")
+    print(f"  3. Host: {app.host}")
+    print(f"  4. Health check: {app.health_check}")
+    print(f"  5. No TLS verify: {app.no_tls_verify}")
+    print(f"  6. Proxy host: {app.proxy_host}")
+    print(f"  7. Enabled: {app.enabled}")
+    print(f"\nSelect field to edit (1-7), or 'q' to quit:")
+
+    try:
+        choice = input("> ").strip().lower()
+
+        if choice == 'q':
+            print("No changes made")
+            return
+
+        backup_path = backup_apps_yaml()
+
+        if choice == '1':
+            new_value = input(f"New hostname [{app.hostname}]: ").strip()
+            if new_value:
+                app.hostname = new_value or None
+        elif choice == '2':
+            new_value = input(f"New port [{app.port}]: ").strip()
+            if new_value:
+                app.port = int(new_value)
+        elif choice == '3':
+            new_value = input(f"New host [{app.host}]: ").strip()
+            if new_value:
+                app.host = new_value
+        elif choice == '4':
+            new_value = input(f"New health check path [{app.health_check}]: ").strip()
+            if new_value:
+                app.health_check = new_value
+        elif choice == '5':
+            new_value = input(f"No TLS verify [{app.no_tls_verify}] (y/n): ").strip().lower()
+            if new_value:
+                app.no_tls_verify = new_value == 'y'
+        elif choice == '6':
+            new_value = input(f"New proxy host [{app.proxy_host}]: ").strip()
+            if new_value:
+                app.proxy_host = new_value or None
+        elif choice == '7':
+            new_value = input(f"Enabled [{app.enabled}] (y/n): ").strip().lower()
+            if new_value:
+                app.enabled = new_value == 'y'
+        else:
+            print("Invalid choice")
+            return
+
+        save_apps(apps)
+        print(f"\n✓ Updated app: {name}")
+
+        # Ask if user wants to deploy
+        deploy = input("\nDeploy changes to Cloudflare? (y/n): ").strip().lower()
+        if deploy == 'y':
+            cf = get_cf_client()
+            try:
+                # Update DNS if hostname changed
+                if app.hostname:
+                    print("Note: DNS records may need manual update if hostname changed")
+
+                # Update tunnel config
+                ingress = build_tunnel_ingress(apps, cf.tunnel_id)
+                cf.update_tunnel_config(ingress)
+                print(f"✓ Updated tunnel config")
+            except CloudflareAPIError as e:
+                print(f"✗ Failed to update tunnel: {e}")
+
+        # Regenerate nginx config
+        generate_nginx_config(apps)
+        print(f"✓ Regenerated nginx config")
+        print("Run 'cf-router reload' to apply nginx changes")
+
+    except KeyboardInterrupt:
+        print("\nEdit cancelled")
+    except Exception as e:
+        print(f"Error: {e}")
+        rollback_apps_yaml(backup_path)
+        sys.exit(1)
+
+
+def cmd_dns(args: List[str]) -> None:
+    """Direct DNS management commands."""
+    if not args:
+        print("Usage: cf-router dns list|add|remove|check")
+        sys.exit(1)
+
+    subcommand = args[0]
+    cf = get_cf_client()
+
+    if subcommand == 'list':
+        try:
+            records = cf.list_dns_records()
+            print(f"\nDNS Records ({len(records)} total):")
+            for record in records:
+                if record['type'] == 'CNAME':
+                    print(f"  {record['name']} -> {record['content']} (proxied: {record['proxied']})")
+        except CloudflareAPIError as e:
+            print(f"Error: {e}")
+
+    elif subcommand == 'add':
+        if len(args) < 2:
+            print("Usage: cf-router dns add <hostname>")
+            sys.exit(1)
+
+        hostname = args[1]
+        try:
+            cf.create_dns_record(hostname)
+            print(f"✓ Created DNS CNAME: {hostname}")
+        except CloudflareAPIError as e:
+            print(f"✗ Failed to create DNS record: {e}")
+
+    elif subcommand == 'remove':
+        if len(args) < 2:
+            print("Usage: cf-router dns remove <hostname>")
+            sys.exit(1)
+
+        hostname = args[1]
+        try:
+            records = cf.list_dns_records()
+            for record in records:
+                if record['type'] == 'CNAME' and record['name'] == hostname:
+                    cf.delete_dns_record(record['id'])
+                    print(f"✓ Deleted DNS CNAME: {hostname}")
+                    return
+            print(f"DNS record not found: {hostname}")
+        except CloudflareAPIError as e:
+            print(f"✗ Failed to delete DNS record: {e}")
+
+    elif subcommand == 'check':
+        if len(args) < 2:
+            print("Usage: cf-router dns check <hostname>")
+            sys.exit(1)
+
+        hostname = args[1]
+        try:
+            records = cf.list_dns_records()
+            for record in records:
+                if record['type'] == 'CNAME' and record['name'] == hostname:
+                    print(f"✓ DNS record exists: {hostname} -> {record['content']}")
+                    return
+            print(f"✗ DNS record not found: {hostname}")
+        except CloudflareAPIError as e:
+            print(f"✗ Error checking DNS: {e}")
+
+    else:
+        print(f"Unknown DNS command: {subcommand}")
+
+
+def cmd_tunnel(args: List[str]) -> None:
+    """Direct tunnel management commands."""
+    if not args:
+        print("Usage: cf-router tunnel show|update|diff")
+        sys.exit(1)
+
+    subcommand = args[0]
+    cf = get_cf_client()
+    apps = load_apps()
+
+    if subcommand == 'show':
+        try:
+            config = cf.get_tunnel_config()
+            ingress = config.get('ingress', [])
+            print(f"\nTunnel Configuration ({len(ingress)} rules):")
+            for rule in ingress:
+                if 'hostname' in rule:
+                    print(f"  {rule['hostname']} -> {rule['service']}")
+                else:
+                    print(f"  catch-all -> {rule['service']}")
+        except CloudflareAPIError as e:
+            print(f"Error: {e}")
+
+    elif subcommand == 'update':
+        try:
+            ingress = build_tunnel_ingress(apps, cf.tunnel_id)
+            cf.update_tunnel_config(ingress)
+            print(f"✓ Updated tunnel config with {len(ingress)-1} ingress rules")
+        except CloudflareAPIError as e:
+            print(f"✗ Failed to update tunnel: {e}")
+
+    elif subcommand == 'diff':
+        try:
+            # Get current tunnel config
+            config = cf.get_tunnel_config()
+            current_ingress = {r['hostname']: r['service'] for r in config.get('ingress', []) if 'hostname' in r}
+
+            # Build expected config
+            expected_ingress = {}
+            for name, app in apps.items():
+                if app.enabled and app.hostname:
+                    if app.hostname == "hub.aitradepulse.com":
+                        service = f"http://127.0.0.1:9099"
+                    else:
+                        service = f"http://127.0.0.1:{LISTEN_PORT}"
+                    expected_ingress[app.hostname] = service
+
+            print("\nTunnel Config Diff:")
+
+            # Missing in tunnel
+            missing = set(expected_ingress.keys()) - set(current_ingress.keys())
+            if missing:
+                print(f"\nMissing in tunnel ({len(missing)}):")
+                for hostname in sorted(missing):
+                    print(f"  - {hostname} -> {expected_ingress[hostname]}")
+
+            # Extra in tunnel
+            extra = set(current_ingress.keys()) - set(expected_ingress.keys())
+            if extra:
+                print(f"\nExtra in tunnel ({len(extra)}):")
+                for hostname in sorted(extra):
+                    print(f"  - {hostname} -> {current_ingress[hostname]}")
+
+            # Different service
+            different = []
+            for hostname in set(expected_ingress.keys()) & set(current_ingress.keys()):
+                if expected_ingress[hostname] != current_ingress[hostname]:
+                    different.append(hostname)
+
+            if different:
+                print(f"\nDifferent service ({len(different)}):")
+                for hostname in sorted(different):
+                    print(f"  - {hostname}")
+                    print(f"      Expected: {expected_ingress[hostname]}")
+                    print(f"      Current:  {current_ingress[hostname]}")
+
+            if not missing and not extra and not different:
+                print("  ✓ Tunnel config is in sync with apps.yaml")
+
+        except CloudflareAPIError as e:
+            print(f"Error: {e}")
+
+    else:
+        print(f"Unknown tunnel command: {subcommand}")
+
+
+def cmd_status(args: List[str]) -> None:
+    """Show status of all apps."""
+    flags, _ = parse_flags(args, {'no_cf': False, 'json': False})
+
+    apps = load_apps()
+
+    if flags.get('no_cf'):
+        show_status(apps, cf=None, json_output=flags.get('json', False))
+    else:
+        try:
+            cf = get_cf_client()
+            show_status(apps, cf=cf, json_output=flags.get('json', False))
+        except CloudflareAPIError as e:
+            print(f"Warning: Could not connect to Cloudflare API: {e}")
+            print("Showing local status only...")
+            show_status(apps, cf=None, json_output=flags.get('json', False))
+
 
 def cmd_generate(args: List[str]) -> None:
     apps = load_apps()
     generate_nginx_config(apps)
     print("Config generated")
 
+
 def cmd_reload(args: List[str]) -> None:
     apps = load_apps()
     generate_nginx_config(apps)
     reload_nginx()
 
+
 def cmd_discover(args: List[str]) -> None:
     discovered = discover_portless()
     print(f"Discovered portless apps: {discovered}")
 
-def cmd_add(args: List[str]) -> None:
-    if len(args) < 2:
-        print("Usage: cf-router add <name> <mode> [options]")
-        sys.exit(1)
-    
-    name = args[0]
-    mode = args[1] if len(args) > 1 else "port"
-    
-    apps = load_apps()
-    
-    if name in apps:
-        print(f"App {name} already exists")
-        sys.exit(1)
-    
-    config = {
-        "mode": mode,
-        "hostname": f"{name}.aitradepulse.com",
-        "enabled": True,
-    }
-    
-    if mode == "port":
-        config["port"] = int(args[2]) if len(args) > 2 else 8080
-    elif mode == "socket":
-        config["path"] = f"/tmp/{name}.sock"
-    
-    apps[name] = config
-    
-    with open(APPS_CONFIG) as f:
-        data = yaml.safe_load(f)
-    
-    data["apps"][name] = config
-    
-    with open(APPS_CONFIG, "w") as f:
-        yaml.dump(data, f, default_flow_style=False)
-    
-    print(f"Added app: {name} (mode: {mode})")
-
-def cmd_remove(args: List[str]) -> None:
-    if not args:
-        print("Usage: cf-router remove <name>")
-        sys.exit(1)
-    
-    name = args[0]
-    apps = load_apps()
-    
-    if name not in apps:
-        print(f"App {name} not found")
-        sys.exit(1)
-    
-    with open(APPS_CONFIG) as f:
-        data = yaml.safe_load(f)
-    
-    del data["apps"][name]
-    
-    with open(APPS_CONFIG, "w") as f:
-        yaml.dump(data, f, default_flow_style=False)
-    
-    print(f"Removed app: {name}")
 
 def cmd_daemon(args: List[str]) -> None:
     """Run as daemon with metrics server and auto-reload on config changes."""
     import http.server
-    import functools
-    
-    port = 9090
-    if args and args[0].startswith('--port'):
-        port = int(args[0].split('=')[1]) if '=' in args[0] else int(args[1])
-    
+
+    flags, _ = parse_flags(args, {'port': 9090})
+    port = flags.get('port', 9090)
+
     # Metrics storage
     metrics = {
         'reload_count': 0,
@@ -364,15 +1309,14 @@ def cmd_daemon(args: List[str]) -> None:
         'app_health': {},
         'start_time': time.time()
     }
-    
+
     class MetricsHandler(http.server.BaseHTTPRequestHandler):
-        # Suppress default error logging for broken pipes
         def handle_one_request(self):
             try:
                 super().handle_one_request()
             except (BrokenPipeError, ConnectionResetError, OSError):
                 self.close_connection = True
-        
+
         def do_GET(self):
             parsed = urlparse(self.path)
             path = parsed.path
@@ -387,7 +1331,7 @@ def cmd_daemon(args: List[str]) -> None:
                 self.wfile.write(b'<h1>CF-Router Metrics</h1><p><a href="/metrics">Prometheus Metrics</a></p><p><a href="/health">Health Check</a></p>')
             else:
                 self.send_error(404)
-        
+
         def serve_metrics(self):
             self.send_response(200)
             self.send_header('Content-Type', 'text/plain; version=0.0.4')
@@ -422,24 +1366,23 @@ def cmd_daemon(args: List[str]) -> None:
             }).encode())
 
         def log_message(self, format, *args):
-            pass  # Suppress access logs
-        
+            pass
+
         def handle_error(self, request, client_address):
-            """Handle errors without crashing - especially broken pipes."""
             exc_type, exc_value, _ = sys.exc_info()
             if exc_type in (BrokenPipeError, ConnectionResetError):
-                return  # Silently ignore client disconnections
+                return
             super().handle_error(request, client_address)
-    
+
     server = http.server.HTTPServer(('', port), MetricsHandler)
     thread = threading.Thread(target=server.serve_forever)
     thread.daemon = True
     thread.start()
-    
+
     print(f"CF-Router daemon started on port {port}")
     print(f"Metrics available at http://localhost:{port}/metrics")
     print(f"Health check at http://localhost:{port}/health")
-    
+
     # Watch for changes
     last_mtime = 0
     try:
@@ -454,12 +1397,12 @@ def cmd_daemon(args: List[str]) -> None:
                         metrics['reload_count'] += 1
                         metrics['last_reload'] = time.time()
                         print(f"[{time.strftime('%H:%M:%S')}] Config reloaded")
-            
+
             # Update app health metrics
             apps = load_apps()
             for name, app in apps.items():
                 metrics['app_health'][name] = app.is_healthy()
-            
+
             time.sleep(5)
     except KeyboardInterrupt:
         print("\nShutting down...")
@@ -470,10 +1413,10 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
-    
+
     cmd = sys.argv[1]
     args = sys.argv[2:]
-    
+
     commands = {
         "status": cmd_status,
         "generate": cmd_generate,
@@ -481,17 +1424,24 @@ def main():
         "discover": cmd_discover,
         "add": cmd_add,
         "remove": cmd_remove,
+        "enable": cmd_enable,
+        "disable": cmd_disable,
+        "edit": cmd_edit,
+        "deploy": cmd_deploy,
+        "sync": cmd_sync,
+        "dns": cmd_dns,
+        "tunnel": cmd_tunnel,
         "daemon": cmd_daemon,
         "serve": cmd_daemon,
     }
-    
+
     if cmd not in commands:
         print(f"Unknown command: {cmd}")
         print(__doc__)
         sys.exit(1)
-    
+
     commands[cmd](args)
 
+
 if __name__ == "__main__":
-    import json
     main()

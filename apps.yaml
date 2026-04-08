@@ -1,91 +1,122 @@
 apps:
   hub:
+    mode: port
     enabled: true
-    health_check: /health
-    host: 127.0.0.1
     hostname: hub.aitradepulse.com
-    mode: port
     port: 9099
-  1ai:
-    enabled: true
-    health_check: /
-    host: 127.0.0.1
-    hostname: 1ai.aitradepulse.com
-    mode: port
-    port: 4000
-  1ai-api:
-    enabled: true
     health_check: /health
-    host: 127.0.0.1
-    hostname: 1ai-api.aitradepulse.com
+  ai:
     mode: port
+    enabled: true
+    hostname: ai.aitradepulse.com
+    port: 20128
+  1ai:
+    mode: port
+    enabled: true
+    hostname: 1ai.aitradepulse.com
+    port: 4002
+  1ai-api:
+    mode: port
+    enabled: false
+    hostname: 1ai-api.aitradepulse.com
+    port: 4001
+  1ai-dashboard:
+    mode: port
+    enabled: false
+    hostname: 1ai-dashboard.aitradepulse.com
+    port: 4000
+  api:
+    mode: port
+    enabled: true
+    hostname: api.aitradepulse.com
     port: 3002
+    proxy_host: 127.0.0.1
   adforge:
+    mode: port
     enabled: true
     hostname: adforge.aitradepulse.com
-    mode: port
-    port: 3000
-  ai:
-    enabled: true
-    health_check: /api/monitoring/health
-    host: 127.0.0.1
-    hostname: ai.aitradepulse.com
-    mode: port
-    port: 20128
+    port: 3001
   cc:
-    enabled: false
-    health_check: /
-    host: 127.0.0.1
-    hostname: cc.aitradepulse.com
     mode: port
-    port: 19527
-  cc2:
     enabled: true
-    health_check: /
-    host: 127.0.0.1
-    hostname: cc2.aitradepulse.com
+    hostname: cc.aitradepulse.com
+    port: 1420
+  cc2:
     mode: port
+    enabled: true
+    hostname: cc2.aitradepulse.com
     port: 1420
   cf-router:
+    mode: port
     enabled: true
-    health_check: /api/status
-    host: 127.0.0.1
     hostname: cf-router.aitradepulse.com
-    mode: port
     port: 7070
+    health_check: /api/status
   gateway:
+    mode: port
     enabled: true
-    health_check: /health
-    host: 127.0.0.1
     hostname: gateway.aitradepulse.com
-    mode: port
-    no_tls_verify: true
     port: 18789
+    health_check: /health
+    no_tls_verify: true
   mt5-router:
+    mode: port
     enabled: true
-    health_check: /api/health
-    host: 127.0.0.1
     hostname: mt-oc.aitradepulse.com
-    mode: port
     port: 8080
+    health_check: /api/health
   paperclip:
-    enabled: true
-    health_check: /
-    host: 127.0.0.1
-    hostname: paperclip.aitradepulse.com
     mode: port
+    enabled: true
+    hostname: paperclip.aitradepulse.com
     port: 3100
   phonefarm:
+    mode: port
     enabled: true
-    health_check: /
-    host: 127.0.0.1
     hostname: phonefarm.aitradepulse.com
+    port: 3080
+  phonefarm-api:
     mode: port
-    port: 8889
-  saas:
     enabled: true
-    health_check: /
-    host: 127.0.0.1
-    hostname: saas.aitradepulse.com
+    hostname: phonefarm-api.aitradepulse.com
+    port: 8889
+    health_check: /api/health
+  saas:
     mode: port
+    enabled: true
+    hostname: saas.aitradepulse.com
     port: 3000
+  ebook:
+    mode: port
+    enabled: true
+    hostname: ebook.aitradepulse.com
+    port: 8501
+  ebook-api:
+    mode: port
+    enabled: true
+    hostname: ebook-api.aitradepulse.com
+    port: 8765
+    health_check: /docs
+  ollama-ai:
+    mode: port
+    enabled: true
+    hostname: ollama-ai.aitradepulse.com
+    port: 11434
+    health_check: /api/tags
+    proxy_host: 127.0.0.1
+  waha:
+    mode: port
+    enabled: true
+    hostname: waha.aitradepulse.com
+    port: 3010
+  polyedge:
+    mode: port
+    enabled: true
+    hostname: polyedge.aitradepulse.com
+    port: 5174
+  polyedge-api:
+    mode: port
+    enabled: true
+    hostname: polyedge-api.aitradepulse.com
+    port: 8100
+    health_check: /api/health
