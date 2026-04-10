@@ -1159,10 +1159,6 @@ app.get('/api/health-status', asyncHandler(async (req, res) => {
   res.json({ services: results, checked_at: new Date().toISOString() });
 }));
 
-// ── Auto-deploy hook (wrap addMapping API) ─────────────────────────────────
-// Patch existing mappings create to support auto_deploy
-const _origMappingCreate = app._router.stack.find(r => r.route?.path === '/api/mappings' && r.route?.methods?.post);
-
 function startAppProcess(name, appCfg, backoff = 1000) {
   if (APP_PROCESSES.has(name)) return;
   let command = appCfg.command || appCfg.script || 'npm start';

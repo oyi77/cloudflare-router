@@ -1,5 +1,10 @@
-const { execSync } = require('child_process');
+const { execSync, exec } = require('child_process');
 const net = require('net');
+const fs = require('fs');
+const path = require('path');
+const yaml = require('js-yaml');
+const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
+const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
 const { loadConfig, loadMappings, addMapping, removeMapping, toggleMapping, getAllMappings } = require('./config');
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
 const { generateTunnelConfig, getTunnelStatus } = require('./tunnel');
@@ -386,15 +391,9 @@ async function handleToolCall(name, args) {
     case 'cf_router_app_start': {
       const { name } = args;
       if (!name) return { error: 'name is required', code: 'missing_param' };
-      const yaml = require('js-yaml');
-      const fs = require('fs');
-      const path = require('path');
-      const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
-      const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
       if (!fs.existsSync(APPS_YAML)) return { error: 'No apps configured', code: 'not_found' };
       const data = yaml.load(fs.readFileSync(APPS_YAML, 'utf8'));
       if (!data?.apps?.[name]) return { error: `App not found: ${name}`, code: 'not_found' };
-      const { exec } = require('child_process');
       const appCfg = data.apps[name];
       const command = appCfg.command || appCfg.script || 'npm start';
       const cwd = appCfg.cwd || path.join(process.env.HOME, 'apps', name);
@@ -408,7 +407,6 @@ async function handleToolCall(name, args) {
       const { name } = args;
       if (!name) return { error: 'name is required', code: 'missing_param' };
       try {
-        const { execSync } = require('child_process');
         execSync(`pkill -f "apps/${name}" 2>/dev/null || true`, { timeout: 3000 });
         return { success: true, name };
       } catch (e) {
@@ -420,12 +418,6 @@ async function handleToolCall(name, args) {
       const { name } = args;
       if (!name) return { error: 'name is required', code: 'missing_param' };
       try {
-        const { execSync, exec } = require('child_process');
-        const fs = require('fs');
-        const path = require('path');
-        const yaml = require('js-yaml');
-        const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
-        const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
         execSync(`pkill -f "apps/${name}" 2>/dev/null || true`, { timeout: 3000 });
         await new Promise(r => setTimeout(r, 500));
         const data = yaml.load(fs.readFileSync(APPS_YAML, 'utf8'));
@@ -443,11 +435,6 @@ async function handleToolCall(name, args) {
     case 'cf_router_app_status': {
       const { name } = args;
       if (!name) return { error: 'name is required', code: 'missing_param' };
-      const fs = require('fs');
-      const path = require('path');
-      const yaml = require('js-yaml');
-      const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
-      const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
       const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
       const appCfg = data?.apps?.[name];
       if (!appCfg) return { error: `App not found: ${name}`, code: 'not_found' };
@@ -457,9 +444,6 @@ async function handleToolCall(name, args) {
     case 'cf_router_app_logs': {
       const { name, lines = 50 } = args;
       if (!name) return { error: 'name is required', code: 'missing_param' };
-      const fs = require('fs');
-      const path = require('path');
-      const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
       const logFile = path.join(CONFIG_DIR, 'logs', `app-${name}.log`);
       if (!fs.existsSync(logFile)) return { success: true, logs: [], name };
       const logs = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).slice(-lines);
@@ -469,11 +453,6 @@ async function handleToolCall(name, args) {
     case 'cf_router_app_config': {
       const { name, autoStart, restartPolicy } = args;
       if (!name) return { error: 'name is required', code: 'missing_param' };
-      const fs = require('fs');
-      const path = require('path');
-      const yaml = require('js-yaml');
-      const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
-      const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
       const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
       if (!data?.apps?.[name]) return { error: `App not found: ${name}`, code: 'not_found' };
       if (autoStart !== undefined) data.apps[name].autoStart = autoStart;
