@@ -891,10 +891,9 @@ const APP_PROCESSES = new Map();
 
 app.post('/api/apps/:name/start', [param('name').trim()], handleValidationErrors, asyncHandler(async (req, res) => {
   const yaml = require('js-yaml');
-  const appsFile = path.join(CONFIG_DIR, 'apps.yml');
-  if (!fs.existsSync(appsFile)) throw new APIError('No apps configured', 404, 'not_found');
+  if (!fs.existsSync(APPS_YAML)) throw new APIError('No apps configured', 404, 'not_found');
 
-  const data = yaml.load(fs.readFileSync(appsFile, 'utf8'));
+  const data = yaml.load(fs.readFileSync(APPS_YAML, 'utf8'));
   const app = data.apps?.[req.params.name];
   if (!app) throw new APIError('App not found', 404, 'not_found');
 
@@ -1164,7 +1163,7 @@ app.get('/api/health-status', asyncHandler(async (req, res) => {
 // Patch existing mappings create to support auto_deploy
 const _origMappingCreate = app._router.stack.find(r => r.route?.path === '/api/mappings' && r.route?.methods?.post);
 
-function startAppProcess(name, appCfg) {
+function startAppProcess(name, appCfg, backoff = 1000) {
   if (APP_PROCESSES.has(name)) return;
   let command = appCfg.command || appCfg.script || 'npm start';
   const cwd = appCfg.cwd || path.join(process.env.HOME, 'apps', name);
@@ -1173,21 +1172,19 @@ function startAppProcess(name, appCfg) {
   console.log(`[auto-start] Started ${name} (PID: ${child.pid})`);
 
   const policy = appCfg.restartPolicy || 'never';
-  let backoff = 1000;
   child.on('exit', (code) => {
     APP_PROCESSES.delete(name);
     const shouldRestart = policy === 'always' || (policy === 'on-failure' && code !== 0);
     if (shouldRestart) {
+      const nextBackoff = Math.min(backoff * 2, 30000);
       console.log(`[watchdog] ${name} exited (code ${code}), restarting in ${backoff}ms`);
       setTimeout(() => {
-        backoff = Math.min(backoff * 2, 30000);
-        // Re-read config in case it changed
         try {
           const yaml = require('js-yaml');
           const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
-          startAppProcess(name, data.apps?.[name] || appCfg);
+          startAppProcess(name, data.apps?.[name] || appCfg, nextBackoff);
         } catch (e) {
-          startAppProcess(name, appCfg);
+          startAppProcess(name, appCfg, nextBackoff);
         }
       }, backoff);
     }
