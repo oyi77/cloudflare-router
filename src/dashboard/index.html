@@ -634,6 +634,13 @@
   </div>
 
   <script>
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
     const API = window.location.origin;
     let authToken = localStorage.getItem('cf-router-token') || '';
     let ws = null;
@@ -720,10 +727,10 @@
 
       container.innerHTML = `<table><thead><tr><th>Code</th><th>Name</th><th>Modified</th><th>Actions</th></tr></thead>
         <tbody>${pages.map(p => `<tr>
-          <td><strong>${p.code}</strong></td>
-          <td>${p.name}</td>
+          <td><strong>${escapeHtml(p.code)}</strong></td>
+          <td>${escapeHtml(p.name)}</td>
           <td style="font-size:11px;color:var(--text3)">${p.updatedAt ? new Date(p.updatedAt).toLocaleString() : 'N/A'}</td>
-          <td><button class="btn btn-s btn-sm" onclick="editErrorPage('${p.code}')">✏️ Edit</button></td>
+          <td><button class="btn btn-s btn-sm" onclick="editErrorPage('${escapeHtml(p.code)}')">✏️ Edit</button></td>
         </tr>`).join('')}</tbody></table>`;
     }
 
@@ -842,12 +849,12 @@
       const tbody = document.getElementById('health-list');
       if (!checks.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3)">No custom health checks. Add one above or configure health_check in Routing tab.</td></tr>'; return; }
       tbody.innerHTML = checks.map(c => `<tr>
-        <td><span class="health-dot ${c.status}"></span>${c.name}</td>
-        <td style="font-size:11px;color:var(--text3)">${c.url}</td>
+        <td><span class="health-dot ${c.status}"></span>${escapeHtml(c.name)}</td>
+        <td style="font-size:11px;color:var(--text3)">${escapeHtml(c.url)}</td>
         <td><span class="badge ${c.status === 'healthy' ? 'badge-ok' : c.status === 'unhealthy' ? 'badge-err' : 'badge-warn'}">${c.status}</span></td>
         <td>${c.latency ? c.latency + 'ms' : '-'}</td>
         <td style="font-size:11px">${c.lastCheck ? new Date(c.lastCheck).toLocaleTimeString() : '-'}</td>
-        <td><button class="btn btn-d btn-sm" onclick="removeHealthCheck('${c.id}')">×</button></td>
+        <td><button class="btn btn-d btn-sm" onclick="removeHealthCheck('${escapeHtml(c.id)}')">×</button></td>
       </tr>`).join('');
     }
 
@@ -894,11 +901,11 @@
         <div class="account-item">
           <div class="account-header" onclick="toggleAccount(${idx})">
             <svg class="chevron" id="chevron-${idx}" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"/></svg>
-            <div class="account-info"><div class="account-name">${acc.name}</div><div class="account-meta">${acc.email} • ${acc.zones.length} zones</div></div>
-            <div class="actions" onclick="event.stopPropagation()"><button class="btn btn-s btn-sm" onclick="discoverZones('${acc.id}')">Discover</button><button class="btn btn-s btn-sm" onclick="showModal2('${acc.id}')">+ Zone</button><button class="btn btn-d btn-sm" onclick="removeAccount('${acc.id}')">×</button></div>
+            <div class="account-info"><div class="account-name">${escapeHtml(acc.name)}</div><div class="account-meta">${escapeHtml(acc.email)} • ${acc.zones.length} zones</div></div>
+            <div class="actions" onclick="event.stopPropagation()"><button class="btn btn-s btn-sm" onclick="discoverZones('${escapeHtml(acc.id)}')">Discover</button><button class="btn btn-s btn-sm" onclick="showModal2('${escapeHtml(acc.id)}')">+ Zone</button><button class="btn btn-d btn-sm" onclick="removeAccount('${escapeHtml(acc.id)}')">×</button></div>
           </div>
           <div class="zone-list" id="zones-${idx}" style="display:none">
-            ${acc.zones.length ? acc.zones.map(z => `<div class="zone-item"><div class="zone-dot"></div><div class="zone-info"><div class="zone-domain">${z.domain}</div><div class="zone-meta">${z.zone_id}${z.tunnel_id ? ' • ' + z.tunnel_id.slice(0, 8) + '...' : ''}</div></div><div class="actions"><button class="btn btn-p btn-sm" title="Sync with Cloudflare" onclick="syncWithCloudflare('${acc.id}','${z.zone_id}')">🔄 Sync</button><button class="btn btn-s btn-sm" onclick="showModal3('${acc.id}','${z.zone_id}')">+ Map</button><button class="btn btn-d btn-sm" onclick="removeZone('${acc.id}','${z.zone_id}')">×</button></div></div>`).join('') : '<p style="color:var(--text3);padding:8px 0;font-size:12px">No zones</p>'}
+            ${acc.zones.length ? acc.zones.map(z => `<div class="zone-item"><div class="zone-dot"></div><div class="zone-info"><div class="zone-domain">${escapeHtml(z.domain)}</div><div class="zone-meta">${escapeHtml(z.zone_id)}${z.tunnel_id ? ' • ' + escapeHtml(z.tunnel_id).slice(0, 8) + '...' : ''}</div></div><div class="actions"><button class="btn btn-p btn-sm" title="Sync with Cloudflare" onclick="syncWithCloudflare('${escapeHtml(acc.id)}','${escapeHtml(z.zone_id)}')">🔄 Sync</button><button class="btn btn-s btn-sm" onclick="showModal3('${escapeHtml(acc.id)}','${escapeHtml(z.zone_id)}')">+ Map</button><button class="btn btn-d btn-sm" onclick="removeZone('${escapeHtml(acc.id)}','${escapeHtml(z.zone_id)}')">×</button></div></div>`).join('') : '<p style="color:var(--text3);padding:8px 0;font-size:12px">No zones</p>'}
           </div>
         </div>`).join('') + '</div>';
     }
@@ -927,12 +934,12 @@
         }
       }
       document.getElementById('domains-list').innerHTML = allDomains.length ? allDomains.map(d => `<tr>
-        <td><strong style="color:var(--accent)">${d.domain}</strong></td>
-        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${d.zone_id}</td>
-        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${d.tunnel_id ? d.tunnel_id.slice(0, 8) + '...' : '-'}</td>
+        <td><strong style="color:var(--accent)">${escapeHtml(d.domain)}</strong></td>
+        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${escapeHtml(d.zone_id)}</td>
+        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${d.tunnel_id ? escapeHtml(d.tunnel_id).slice(0, 8) + '...' : '-'}</td>
         <td><span class="badge badge-info">${d.mapping_count}</span></td>
-        <td>${d.account_name}</td>
-        <td><button class="btn btn-s btn-sm" onclick="showModal3('${d.account_id}','${d.zone_id}')">+ Mapping</button></td>
+        <td>${escapeHtml(d.account_name)}</td>
+        <td><button class="btn btn-s btn-sm" onclick="showModal3('${escapeHtml(d.account_id)}','${escapeHtml(d.zone_id)}')">+ Mapping</button></td>
       </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text3)">No domains</td></tr>';
     }
 
@@ -941,9 +948,9 @@
       if (!res) return;
       const mappings = res.data || [];
       document.getElementById('all-mappings').innerHTML = mappings.length ? mappings.map(m => `<tr>
-        <td><strong>${m.full_domain}</strong></td><td>${m.port}</td><td>${m.account_name}</td><td>${m.domain}</td>
+        <td><strong>${escapeHtml(m.full_domain)}</strong></td><td>${m.port}</td><td>${escapeHtml(m.account_name)}</td><td>${escapeHtml(m.domain)}</td>
         <td><span class="badge ${m.enabled !== false ? 'badge-ok' : 'badge-err'}">${m.enabled !== false ? 'Active' : 'Disabled'}</span></td>
-        <td><button class="btn btn-d btn-sm" onclick="removeMapping('${m.account_id}','${m.zone_id}','${m.subdomain}')">×</button></td>
+        <td><button class="btn btn-d btn-sm" onclick="removeMapping('${escapeHtml(m.account_id)}','${escapeHtml(m.zone_id)}','${escapeHtml(m.subdomain)}')">×</button></td>
       </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text3)">No mappings</td></tr>';
     }
 
@@ -951,9 +958,9 @@
       const dns = await fetchJSON('/api/dns/all');
       if (!dns) return;
       document.getElementById('dns-list').innerHTML = dns.length ? dns.map(r => `<tr>
-        <td><strong>${r.name}</strong></td><td><span class="badge badge-info">${r.type}</span></td>
-        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${r.content}</td>
-        <td>${r.proxied ? '<span style="color:var(--green)">Yes</span>' : 'No'}</td><td>${r.account_name}</td><td>${r.zone_domain}</td>
+        <td><strong>${escapeHtml(r.name)}</strong></td><td><span class="badge badge-info">${escapeHtml(r.type)}</span></td>
+        <td style="font-family:monospace;font-size:11px;color:var(--text3)">${escapeHtml(r.content)}</td>
+        <td>${r.proxied ? '<span style="color:var(--green)">Yes</span>' : 'No'}</td><td>${escapeHtml(r.account_name)}</td><td>${escapeHtml(r.zone_domain)}</td>
       </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text3)">No DNS records</td></tr>';
     }
 
@@ -961,10 +968,10 @@
       const tunnels = await fetchJSON('/api/tunnels/all');
       if (!tunnels) return;
       document.getElementById('tunnels-list').innerHTML = tunnels.length ? tunnels.map(t => `<tr>
-        <td><strong>${t.name}</strong></td><td style="font-family:monospace;font-size:11px;color:var(--text3)">${t.id.slice(0, 8)}...</td>
+        <td><strong>${escapeHtml(t.name)}</strong></td><td style="font-family:monospace;font-size:11px;color:var(--text3)">${escapeHtml(t.id).slice(0, 8)}...</td>
         <td><span class="badge ${t.status === 'healthy' ? 'badge-ok' : 'badge-err'}">${t.status}</span></td>
-        <td>${t.tun_type || '-'}</td><td>${t.account_name}</td><td>${t.created_at ? new Date(t.created_at).toLocaleDateString() : '-'}</td>
-        <td><button class="btn btn-s btn-sm" onclick="restartTunnel('${t.id}')">🔄</button></td>
+        <td>${escapeHtml(t.tun_type || '-')}</td><td>${escapeHtml(t.account_name)}</td><td>${t.created_at ? new Date(t.created_at).toLocaleDateString() : '-'}</td>
+        <td><button class="btn btn-s btn-sm" onclick="restartTunnel('${escapeHtml(t.id)}')">🔄</button></td>
       </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text3)">No tunnels</td></tr>';
     }
 
@@ -973,8 +980,8 @@
       const ssl = await fetchJSON('/api/ssl/all');
       if (!ssl) return;
       document.getElementById('ssl-list').innerHTML = ssl.map(s => `<tr>
-        <td><strong>${s.domain}</strong></td>
-        <td style="font-size:12px">${s.expires || '-'}</td>
+        <td><strong>${escapeHtml(s.domain)}</strong></td>
+        <td style="font-size:12px">${escapeHtml(s.expires || '-')}</td>
         <td style="color:${s.daysUntilExpiry < 30 ? 'var(--red)' : s.daysUntilExpiry < 60 ? 'var(--yellow)' : 'var(--green)'}">${s.daysUntilExpiry !== null ? s.daysUntilExpiry + ' days' : '-'}</td>
         <td><span class="badge ${s.status === 'ok' ? 'badge-ok' : s.status === 'warning' ? 'badge-warn' : 'badge-err'}">${s.status || (s.error ? 'error' : '-')}</span></td>
       </tr>`).join('');
@@ -999,9 +1006,9 @@
           const a = apps[name];
           const url = `https://${a.hostname}${a.health_check}`;
           return `<tr>
-            <td><strong>${name}</strong></td>
-            <td style="font-size:11px;color:var(--accent)">${a.hostname}</td>
-            <td style="font-family:monospace;font-size:11px">${a.health_check}</td>
+            <td><strong>${escapeHtml(name)}</strong></td>
+            <td style="font-size:11px;color:var(--accent)">${escapeHtml(a.hostname)}</td>
+            <td style="font-family:monospace;font-size:11px">${escapeHtml(a.health_check)}</td>
             <td><span class="badge badge-info">monitored</span></td>
           </tr>`;
         }).join('');
@@ -1053,18 +1060,18 @@
         const escaped = c.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         return `<div class="card" style="margin-bottom:12px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <strong>${c.file}</strong>
+            <strong>${escapeHtml(c.file)}</strong>
             <div class="actions">
               <button class="btn btn-s btn-sm" onclick="navigator.clipboard.writeText(\`${c.content.replace(/`/g, '\\`').replace(/\\/g, '\\\\')}\`)">📋 Copy</button>
-              <button class="btn btn-s btn-sm" onclick="toggleNginxEdit('${c.file}')">✏️ Edit</button>
+              <button class="btn btn-s btn-sm" onclick="toggleNginxEdit('${escapeHtml(c.file)}')">✏️ Edit</button>
             </div>
           </div>
           <pre id="nginx-view-${c.file.replace(/[^a-zA-Z0-9]/g, '_')}" style="background:var(--bg);padding:12px;border-radius:8px;font-size:11px;overflow-x:auto;color:var(--text2);max-height:300px">${escaped}</pre>
           <div id="nginx-edit-${c.file.replace(/[^a-zA-Z0-9]/g, '_')}" class="hidden" style="margin-top:8px">
             <textarea id="nginx-textarea-${c.file.replace(/[^a-zA-Z0-9]/g, '_')}" class="input" style="width:100%;height:250px;font-family:monospace;font-size:11px;white-space:pre">${escaped}</textarea>
             <div style="display:flex;gap:8px;margin-top:8px">
-              <button class="btn btn-p btn-sm" onclick="saveNginxConfig('${c.file}')">💾 Save</button>
-              <button class="btn btn-s btn-sm" onclick="toggleNginxEdit('${c.file}')">Cancel</button>
+              <button class="btn btn-p btn-sm" onclick="saveNginxConfig('${escapeHtml(c.file)}')">💾 Save</button>
+              <button class="btn btn-s btn-sm" onclick="toggleNginxEdit('${escapeHtml(c.file)}')">Cancel</button>
             </div>
           </div>
         </div>`;
@@ -1189,15 +1196,15 @@
         const a = apps[name];
         const target = a.mode === 'socket' ? a.path : `${a.host || '127.0.0.1'}:${a.port || '?'}`;
         return `<tr>
-          <td><strong>${name}</strong></td>
-          <td style="font-size:12px;color:var(--accent)">${a.hostname || '-'}</td>
-          <td><span class="badge badge-info">${a.mode || 'port'}</span></td>
-          <td style="font-family:monospace;font-size:11px">${target}</td>
-          <td style="font-size:11px;color:var(--text3)">${a.health_check || '-'}</td>
+          <td><strong>${escapeHtml(name)}</strong></td>
+          <td style="font-size:12px;color:var(--accent)">${escapeHtml(a.hostname || '-')}</td>
+          <td><span class="badge badge-info">${escapeHtml(a.mode || 'port')}</span></td>
+          <td style="font-family:monospace;font-size:11px">${escapeHtml(target)}</td>
+          <td style="font-size:11px;color:var(--text3)">${escapeHtml(a.health_check || '-')}</td>
           <td><span class="badge ${a.enabled !== false ? 'badge-ok' : 'badge-err'}">${a.enabled !== false ? 'Enabled' : 'Disabled'}</span></td>
           <td>
-            <button class="btn btn-s btn-sm" onclick="editApp('${name}')">✏️</button>
-            <button class="btn btn-d btn-sm" onclick="deleteApp('${name}')">×</button>
+            <button class="btn btn-s btn-sm" onclick="editApp('${escapeHtml(name)}')">✏️</button>
+            <button class="btn btn-d btn-sm" onclick="deleteApp('${escapeHtml(name)}')">×</button>
           </td>
         </tr>`;
       }).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text3)">No apps configured</td></tr>';
@@ -1269,7 +1276,7 @@
       const langs = await fetchJSON('/api/languages');
       if (!langs) return;
       const selector = document.getElementById('lang-selector');
-      selector.innerHTML = langs.map(l => `<option value="${l.code}" ${l.code === currentLang ? 'selected' : ''}>${l.flag} ${l.name}</option>`).join('');
+      selector.innerHTML = langs.map(l => `<option value="${escapeHtml(l.code)}" ${l.code === currentLang ? 'selected' : ''}>${escapeHtml(l.flag)} ${escapeHtml(l.name)}</option>`).join('');
     }
 
     async function loadTranslations(lang) {
@@ -1358,13 +1365,13 @@
     <div class="card" style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <div>
-          <strong>${acc.name}</strong><br>
-          <small style="color:var(--text3);">${acc.email}</small>
+          <strong>${escapeHtml(acc.name)}</strong><br>
+          <small style="color:var(--text3);">${escapeHtml(acc.email)}</small>
           <div style="margin-top:4px;font-size:12px;">${acc.zones.length} zones</div>
         </div>
         <div class="actions" style="display:flex;gap:6px;">
-          <button class="btn btn-s" onclick="showEditAccountModal('${acc.id}')">Edit</button>
-          <button class="btn btn-d" onclick="deleteAccountSetting('${acc.id}')">Delete</button>
+          <button class="btn btn-s" onclick="showEditAccountModal('${escapeHtml(acc.id)}')">Edit</button>
+          <button class="btn btn-d" onclick="deleteAccountSetting('${escapeHtml(acc.id)}')">Delete</button>
         </div>
       </div>
     </div>
@@ -1384,12 +1391,12 @@
     <div class="card" style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <div>
-          <strong>${server.name}</strong><br>
-          <small style="color:var(--text3);">${server.type === 'ssh' ? `SSH: ${server.username}@${server.host}:${server.port || 22}` : `Local: ${server.host}:${server.port || 'N/A'}`}</small>
+          <strong>${escapeHtml(server.name)}</strong><br>
+          <small style="color:var(--text3);">${server.type === 'ssh' ? `SSH: ${escapeHtml(server.username)}@${escapeHtml(server.host)}:${server.port || 22}` : `Local: ${escapeHtml(server.host)}:${server.port || 'N/A'}`}</small>
         </div>
         <div class="actions" style="display:flex;gap:6px;">
-          <button class="btn btn-s" onclick="showEditServerModal('${server.id}')">Edit</button>
-          <button class="btn btn-d" onclick="deleteServerSetting('${server.id}')">Delete</button>
+          <button class="btn btn-s" onclick="showEditServerModal('${escapeHtml(server.id)}')">Edit</button>
+          <button class="btn btn-d" onclick="deleteServerSetting('${escapeHtml(server.id)}')">Delete</button>
         </div>
       </div>
     </div>
@@ -1409,25 +1416,25 @@
       container.innerHTML = services.map(svc => {
         const enabled = svc.enabled !== false;
         return `
-    <div class="card svc-card ${enabled ? '' : 'svc-disabled'}" id="portless-card-${svc.name}" style="margin-bottom:12px;">
+    <div class="card svc-card ${enabled ? '' : 'svc-disabled'}" id="portless-card-${escapeHtml(svc.name)}" style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
         <div style="display:flex;align-items:center;gap:10px;">
           <label class="switch" title="${enabled ? 'Disable' : 'Enable'} service">
-            <input type="checkbox" ${enabled ? 'checked' : ''} onchange="togglePortlessService('${svc.name}', this.checked)">
+            <input type="checkbox" ${enabled ? 'checked' : ''} onchange="togglePortlessService('${escapeHtml(svc.name)}', this.checked)">
             <span class="slider round"></span>
           </label>
           <div>
-            <strong>${svc.name}</strong>
+            <strong>${escapeHtml(svc.name)}</strong>
             <span class="badge ${enabled ? 'badge-ok' : 'badge-err'}" style="margin-left:6px;font-size:10px;">${enabled ? 'Enabled' : 'Disabled'}</span><br>
-            <small style="color:var(--text3);">Port: ${svc.port}${svc.subdomain ? ` → ${svc.subdomain}` : ''}</small>
-            ${svc.description ? `<div style="margin-top:2px;font-size:12px;color:var(--text2);">${svc.description}</div>` : ''}
+            <small style="color:var(--text3);">Port: ${svc.port}${svc.subdomain ? ` → ${escapeHtml(svc.subdomain)}` : ''}</small>
+            ${svc.description ? `<div style="margin-top:2px;font-size:12px;color:var(--text2);">${escapeHtml(svc.description)}</div>` : ''}
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-          <span class="test-badge" id="test-badge-${svc.name}"></span>
-          <button class="btn btn-s" id="test-btn-${svc.name}" onclick="testPortlessService('${svc.name}')">Test</button>
-          <button class="btn btn-s" onclick="updatePortless('${svc.name}')">Edit</button>
-          <button class="btn btn-d" onclick="releasePortless('${svc.name}')">Release</button>
+          <span class="test-badge" id="test-badge-${escapeHtml(svc.name)}"></span>
+          <button class="btn btn-s" id="test-btn-${escapeHtml(svc.name)}" onclick="testPortlessService('${escapeHtml(svc.name)}')">Test</button>
+          <button class="btn btn-s" onclick="updatePortless('${escapeHtml(svc.name)}')">Edit</button>
+          <button class="btn btn-d" onclick="releasePortless('${escapeHtml(svc.name)}')">Release</button>
         </div>
       </div>
     </div>`;
@@ -1459,35 +1466,35 @@
         const restartPolicy = app.restartPolicy || 'never';
 
         return `
-      <div class="card" id="app-card-${name}" style="margin-bottom:12px;">
+      <div class="card" id="app-card-${escapeHtml(name)}" style="margin-bottom:12px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
           <div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <strong>${name}</strong>
+              <strong>${escapeHtml(name)}</strong>
               <span class="badge ${running ? 'badge-ok' : 'badge-err'}">${running ? 'Running' : 'Stopped'}</span>
               ${running ? `<span class="badge badge-info">PID: ${pid}</span>` : ''}
               ${autoStart ? `<span class="badge badge-warn" style="font-size:10px;">Auto-start</span>` : ''}
             </div>
-            <small style="color:var(--text3);">${app.hostname || 'N/A'} • ${app.mode || 'proxy'}</small>
-            <span class="test-badge" id="app-test-badge-${name}" style="margin-left:8px;"></span>
+            <small style="color:var(--text3);">${escapeHtml(app.hostname || 'N/A')} • ${escapeHtml(app.mode || 'proxy')}</small>
+            <span class="test-badge" id="app-test-badge-${escapeHtml(name)}" style="margin-left:8px;"></span>
           </div>
           <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
             <div class="actions" style="display:flex;gap:6px;flex-wrap:wrap;">
               ${running
-                ? `<button class="btn btn-s" onclick="stopAppLifecycle('${name}')">Stop</button>
-                   <button class="btn btn-s" onclick="restartAppLifecycle('${name}')">Restart</button>`
-                : `<button class="btn btn-p" onclick="startAppLifecycle('${name}')">Start</button>`}
-              <button class="btn btn-s" onclick="testAppService('${name}')">Test</button>
-              <button class="btn btn-s" onclick="viewAppLogsModal('${name}')">Logs</button>
+                ? `<button class="btn btn-s" onclick="stopAppLifecycle('${escapeHtml(name)}')">Stop</button>
+                   <button class="btn btn-s" onclick="restartAppLifecycle('${escapeHtml(name)}')">Restart</button>`
+                : `<button class="btn btn-p" onclick="startAppLifecycle('${escapeHtml(name)}')">Start</button>`}
+              <button class="btn btn-s" onclick="testAppService('${escapeHtml(name)}')">Test</button>
+              <button class="btn btn-s" onclick="viewAppLogsModal('${escapeHtml(name)}')">Logs</button>
             </div>
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
               <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
-                <input type="checkbox" ${autoStart ? 'checked' : ''} onchange="configureApp('${name}', {autoStart: this.checked})">
+                <input type="checkbox" ${autoStart ? 'checked' : ''} onchange="configureApp('${escapeHtml(name)}', {autoStart: this.checked})">
                 Auto-start
               </label>
               <label style="font-size:12px;">Restart:
                 <select class="input" style="height:28px;padding:2px 6px;font-size:12px;width:auto;display:inline-block;margin-left:4px;"
-                  onchange="configureApp('${name}', {restartPolicy: this.value})">
+                  onchange="configureApp('${escapeHtml(name)}', {restartPolicy: this.value})">
                   <option value="never" ${restartPolicy === 'never' ? 'selected' : ''}>Never</option>
                   <option value="on-failure" ${restartPolicy === 'on-failure' ? 'selected' : ''}>On Failure</option>
                   <option value="always" ${restartPolicy === 'always' ? 'selected' : ''}>Always</option>
@@ -1513,12 +1520,12 @@
     <div class="card" style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;">
         <div>
-          <strong>${backup.file}</strong><br>
-          <small style="color:var(--text3);">${backup.createdAt}</small>
+          <strong>${escapeHtml(backup.file)}</strong><br>
+          <small style="color:var(--text3);">${escapeHtml(backup.createdAt)}</small>
         </div>
         <div class="actions" style="display:flex;gap:6px;">
-          <button class="btn btn-s" onclick="restoreBackupFromList('${backup.file}')">Restore</button>
-          <button class="btn btn-d" onclick="deleteBackup('${backup.file}')">Delete</button>
+          <button class="btn btn-s" onclick="restoreBackupFromList('${escapeHtml(backup.file)}')">Restore</button>
+          <button class="btn btn-d" onclick="deleteBackup('${escapeHtml(backup.file)}')">Delete</button>
         </div>
       </div>
     </div>

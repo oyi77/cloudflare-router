@@ -788,11 +788,10 @@ program.command('portless:test <name>').description('Run TCP+HTTP test on a port
       const result = await portless.testService(name);
       console.log(chalk.bold(`\nTest results for "${name}":`));
       console.log(chalk.gray('─'.repeat(50)));
-      console.log(`  TCP:  ${result.tcp  ? chalk.green('✓ open') : chalk.red('✗ closed')}`);
-      console.log(`  HTTP: ${result.http ? chalk.green(`✓ ${result.httpStatus}`) : chalk.red('✗ unreachable')}`);
-      if (result.latency !== undefined) console.log(`  Latency: ${chalk.cyan(result.latency + 'ms')}`);
+      console.log(`  TCP:  ${result.tcp?.open ? chalk.green(`✓ open (port ${result.tcp.port})`) : chalk.red('✗ closed')}`);
+      console.log(`  HTTP: ${result.http?.ok ? chalk.green(`✓ ${result.http?.status} OK (${result.http?.latency}ms)`) : chalk.red('✗ unavailable')}`);
       console.log(chalk.gray('─'.repeat(50)));
-      if (!result.tcp && !result.http) process.exit(1);
+      if (!result.tcp?.open && !result.http?.ok) process.exit(1);
     } catch (err) {
       console.error(chalk.red(`✗ ${err.message}`));
       process.exit(1);

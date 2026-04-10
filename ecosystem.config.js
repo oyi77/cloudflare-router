@@ -3,6 +3,7 @@ module.exports = {
         {
             name: 'cloudflare-router',
             script: 'src/server.js',
+cwd: '/home/openclaw/.cloudflare-router/',
             instances: 1,
             autorestart: true,
             watch: false,

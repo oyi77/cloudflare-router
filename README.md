@@ -231,6 +231,20 @@ Validation errors return `400` with details:
 }
 ```
 
+## Security
+
+### Authentication
+- Login via `POST /api/auth/login` with `{ password }` in the request body
+- On success, returns a cryptographically random 64-character hex token (32 bytes via `crypto.randomBytes`)
+- Use the token as `Authorization: Bearer <token>` on subsequent requests
+- Tokens are stored in-memory and cleared on server restart
+
+### Input Validation
+- App names are validated against `/^[a-zA-Z0-9_-]+$/` (max 128 characters)
+- App config updates only accept whitelisted fields: `command`, `script`, `cwd`, `env`, `mode`, `port`, `restartPolicy`, `enabled`, `autoStart`
+- Domain names in SSL checks are validated against a strict regex
+- Cloudflare config paths must resolve within `~/.cloudflared/`
+
 ## Security Features
 
 - **Helmet.js**: Security headers (CSP, HSTS, X-Frame-Options)
@@ -239,6 +253,26 @@ Validation errors return `400` with details:
   - API endpoints: 100 requests per minute
 - **CORS**: Configurable via `CORS_ORIGIN` env var
 - **Request Tracing**: `X-Request-ID` header for debugging
+
+## Reliability
+
+### Graceful Shutdown
+The server handles SIGTERM gracefully:
+1. Stops accepting new connections
+2. Waits up to 10 seconds for in-flight requests to complete
+3. Sends SIGTERM to all managed app processes, then SIGKILL after 5 seconds
+4. Forces exit after 15 seconds if shutdown hangs
+
+### Log Rotation
+Access logs are written to `~/.cloudflare-router/access.log`.
+- Rotation triggers when the log file exceeds 10MB
+- Up to 5 rotated copies are kept (`.log.1` through `.log.5`)
+
+### App Lifecycle
+- Apps with `autoStart: true` in `apps.yaml` start automatically on server boot
+- `restartPolicy: always` restarts apps on exit (exponential backoff: 1s → 2s → 4s → ... → 30s cap)
+- `restartPolicy: on-failure` restarts only on non-zero exit codes
+- `restartPolicy: never` (default) does not restart
 
 ## MCP Tools (AI Agent Integration)
 
@@ -320,6 +354,24 @@ AUTH_TOKEN=your-token            # API auth token
 WEBHOOK_URL=https://...          # Webhook for alerts
 CORS_ORIGIN=https://example.com  # CORS origin (default: all)
 ```
+
+## Testing
+
+Run the full test suite:
+```bash
+npm test -- --runInBand
+```
+
+The `--runInBand` flag prevents flaky failures caused by parallel test suite cleanup of shared fixture directories.
+
+Test files:
+- `tests/api.test.js` — API integration tests
+- `tests/portless.test.js` — Portless service module tests
+- `tests/app-lifecycle.test.js` — App lifecycle API tests
+- `tests/mcp.test.js` — MCP tool handler tests
+- `tests/watchdog.test.js` — Watchdog restart logic tests
+- `tests/auth-flow.test.js` — Auth token flow tests
+- `tests/security.test.js` — Input validation unit tests
 
 ## Development
 
