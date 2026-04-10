@@ -352,6 +352,16 @@ label {
   color: var(--blue);
 }
 
+.svc-disabled {
+  opacity: 0.55;
+}
+
+.test-badge {
+  display: inline-block;
+  min-width: 0;
+  vertical-align: middle;
+}
+
 /* Modals */
 .modal {
   position: fixed;
@@ -583,4 +593,119 @@ input:checked+.slider:before {
 
 .slider.round:before {
   border-radius: 50%;
+}
+
+/* Account Tree */
+.account-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.account-item {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.account-item:hover {
+  border-color: var(--border-hover);
+}
+
+.account-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.account-header:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chevron {
+  width: 18px;
+  height: 18px;
+  color: var(--text3);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+}
+
+.account-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-name {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--text);
+}
+
+.account-meta {
+  font-size: 0.75rem;
+  color: var(--text3);
+  margin-top: 0.125rem;
+}
+
+.zone-list {
+  padding: 0 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.zone-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  transition: background 0.15s;
+}
+
+.zone-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.zone-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.zone-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.zone-domain {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.zone-meta {
+  font-size: 0.6875rem;
+  color: var(--text3);
+  font-family: monospace;
+  margin-top: 0.125rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }

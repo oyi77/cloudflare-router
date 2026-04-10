@@ -758,4 +758,249 @@ program.command('wizard').description('Interactive wizard to add a new service m
     console.log(chalk.bold.green('\n🎉 Done!'));
   });
 
+// ── Portless enable/disable/test ──────────────────────────────────────────────
+
+program.command('portless:enable <name>').description('Enable a portless service')
+  .action((name) => {
+    try {
+      portless.enableService(name);
+      console.log(chalk.green(`✓ Portless service "${name}" enabled`));
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+program.command('portless:disable <name>').description('Disable a portless service')
+  .action((name) => {
+    try {
+      portless.disableService(name);
+      console.log(chalk.green(`✓ Portless service "${name}" disabled`));
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+program.command('portless:test <name>').description('Run TCP+HTTP test on a portless service')
+  .action(async (name) => {
+    try {
+      const result = await portless.testService(name);
+      console.log(chalk.bold(`\nTest results for "${name}":`));
+      console.log(chalk.gray('─'.repeat(50)));
+      console.log(`  TCP:  ${result.tcp  ? chalk.green('✓ open') : chalk.red('✗ closed')}`);
+      console.log(`  HTTP: ${result.http ? chalk.green(`✓ ${result.httpStatus}`) : chalk.red('✗ unreachable')}`);
+      if (result.latency !== undefined) console.log(`  Latency: ${chalk.cyan(result.latency + 'ms')}`);
+      console.log(chalk.gray('─'.repeat(50)));
+      if (!result.tcp && !result.http) process.exit(1);
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+// ── App lifecycle commands ────────────────────────────────────────────────────
+
+function appApiRequest(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const http = require('http');
+    const config = loadConfig();
+    const port = process.env.PORT || config.server?.port || 7070;
+    const token = process.env.AUTH_TOKEN || process.env.DASHBOARD_PASSWORD || '';
+    const data = body ? JSON.stringify(body) : null;
+    const options = {
+      hostname: '127.0.0.1',
+      port,
+      path,
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}),
+      },
+    };
+    const req = http.request(options, (res) => {
+      let raw = '';
+      res.on('data', (chunk) => { raw += chunk; });
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
+        catch { resolve({ status: res.statusCode, body: raw }); }
+      });
+    });
+    req.on('error', reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+program.command('app:start <name>').description('Start an app process')
+  .action(async (name) => {
+    try {
+      const res = await appApiRequest('POST', `/api/apps/${encodeURIComponent(name)}/start`);
+      if (res.status !== 200) {
+        console.error(chalk.red(`✗ ${res.body?.error || res.body}`));
+        process.exit(1);
+      }
+      const pid = res.body?.pid;
+      console.log(chalk.green(`✓ App "${name}" started`) + (pid ? chalk.gray(` (PID ${pid})`) : ''));
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+program.command('app:stop <name>').description('Stop an app process')
+  .action(async (name) => {
+    try {
+      const res = await appApiRequest('POST', `/api/apps/${encodeURIComponent(name)}/stop`);
+      if (res.status !== 200) {
+        console.error(chalk.red(`✗ ${res.body?.error || res.body}`));
+        process.exit(1);
+      }
+      console.log(chalk.green(`✓ App "${name}" stopped`));
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+program.command('app:restart <name>').description('Restart an app process')
+  .action(async (name) => {
+    try {
+      const res = await appApiRequest('POST', `/api/apps/${encodeURIComponent(name)}/restart`);
+      if (res.status !== 200) {
+        console.error(chalk.red(`✗ ${res.body?.error || res.body}`));
+        process.exit(1);
+      }
+      const pid = res.body?.pid;
+      console.log(chalk.green(`✓ App "${name}" restarted`) + (pid ? chalk.gray(` (PID ${pid})`) : ''));
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+program.command('app:status <name>').description('Print app status, PID, autoStart, restartPolicy')
+  .action(async (name) => {
+    try {
+      const res = await appApiRequest('GET', `/api/apps/${encodeURIComponent(name)}/status`);
+      if (res.status !== 200) {
+        console.error(chalk.red(`✗ ${res.body?.error || res.body}`));
+        process.exit(1);
+      }
+      const s = res.body;
+      console.log(chalk.bold(`\nApp: ${chalk.cyan(name)}`));
+      console.log(chalk.gray('─'.repeat(40)));
+      console.log(`  Status:        ${s.running ? chalk.green('running') : chalk.red('stopped')}`);
+      if (s.pid)           console.log(`  PID:           ${chalk.yellow(s.pid)}`);
+      if (s.autoStart !== undefined) console.log(`  Auto-start:    ${s.autoStart ? chalk.green('yes') : chalk.gray('no')}`);
+      if (s.restartPolicy) console.log(`  Restart policy:${chalk.cyan(' ' + s.restartPolicy)}`);
+      if (s.uptime)        console.log(`  Uptime:        ${chalk.gray(s.uptime)}`);
+      console.log(chalk.gray('─'.repeat(40)));
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+program.command('app:logs <name>').description('Print app log lines')
+  .option('--lines <n>', 'Number of lines to show', '50')
+  .action(async (name, opts) => {
+    try {
+      const lines = parseInt(opts.lines) || 50;
+      const res = await appApiRequest('GET', `/api/apps/${encodeURIComponent(name)}/logs?lines=${lines}`);
+      if (res.status !== 200) {
+        console.error(chalk.red(`✗ ${res.body?.error || res.body}`));
+        process.exit(1);
+      }
+      const logs = res.body?.logs || res.body;
+      if (Array.isArray(logs)) {
+        logs.forEach(line => console.log(line));
+      } else {
+        console.log(logs);
+      }
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+program.command('app:config <name>').description('Save app config (autoStart, restartPolicy)')
+  .option('--auto-start <bool>', 'Enable auto-start (true/false)')
+  .option('--restart-policy <value>', 'Restart policy (always|on-failure|never)')
+  .action(async (name, opts) => {
+    try {
+      const patch = {};
+      if (opts.autoStart !== undefined) patch.autoStart = opts.autoStart === 'true' || opts.autoStart === '1';
+      if (opts.restartPolicy !== undefined) patch.restartPolicy = opts.restartPolicy;
+      if (!Object.keys(patch).length) {
+        console.error(chalk.red('✗ Provide --auto-start and/or --restart-policy'));
+        process.exit(1);
+      }
+      const res = await appApiRequest('PATCH', `/api/apps/${encodeURIComponent(name)}/config`, patch);
+      if (res.status !== 200) {
+        console.error(chalk.red(`✗ ${res.body?.error || res.body}`));
+        process.exit(1);
+      }
+      console.log(chalk.green(`✓ App "${name}" config updated`));
+      if (patch.autoStart !== undefined)   console.log(chalk.gray(`  auto-start:     ${patch.autoStart}`));
+      if (patch.restartPolicy !== undefined) console.log(chalk.gray(`  restart-policy: ${patch.restartPolicy}`));
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+program.command('app:test <name>').description('Run TCP+HTTP test on an app, print result')
+  .action(async (name) => {
+    try {
+      // Get the app's port via status, then test TCP+HTTP directly
+      const res = await appApiRequest('GET', `/api/apps/${encodeURIComponent(name)}/status`);
+      if (res.status !== 200) {
+        console.error(chalk.red(`✗ ${res.body?.error || res.body}`));
+        process.exit(1);
+      }
+      const appPort = res.body?.port;
+      if (!appPort) {
+        console.error(chalk.red('✗ No port configured for this app'));
+        process.exit(1);
+      }
+
+      const net = require('net');
+      const http = require('http');
+
+      // TCP test
+      const tcpOk = await new Promise((resolve) => {
+        const sock = net.createConnection({ host: '127.0.0.1', port: appPort });
+        sock.once('connect', () => { sock.destroy(); resolve(true); });
+        sock.once('error', () => resolve(false));
+        setTimeout(() => { sock.destroy(); resolve(false); }, 2000);
+      });
+
+      // HTTP test
+      let httpOk = false;
+      let httpStatus = null;
+      await new Promise((resolve) => {
+        const req = http.get(`http://127.0.0.1:${appPort}/`, (r) => {
+          httpOk = true;
+          httpStatus = r.statusCode;
+          r.resume();
+          resolve();
+        });
+        req.on('error', () => resolve());
+        req.setTimeout(3000, () => { req.destroy(); resolve(); });
+      });
+
+      console.log(chalk.bold(`\nTest results for app "${name}" (port ${appPort}):`));
+      console.log(chalk.gray('─'.repeat(50)));
+      console.log(`  TCP:  ${tcpOk  ? chalk.green('✓ open') : chalk.red('✗ closed')}`);
+      console.log(`  HTTP: ${httpOk ? chalk.green(`✓ ${httpStatus}`) : chalk.red('✗ unreachable')}`);
+      console.log(chalk.gray('─'.repeat(50)));
+      if (!tcpOk && !httpOk) process.exit(1);
+    } catch (err) {
+      console.error(chalk.red(`✗ ${err.message}`));
+      process.exit(1);
+    }
+  });
+
 program.parse();

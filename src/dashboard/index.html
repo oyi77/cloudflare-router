@@ -619,6 +619,20 @@
     </div>
   </div>
 
+  <div class="modal" id="logs-modal" role="dialog" aria-labelledby="logs-modal-title" aria-modal="true">
+    <div class="modal-box" style="max-width:760px;width:95%;">
+      <div class="modal-hdr">
+        <h2 id="logs-modal-title">App Logs</h2>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-s" id="logs-refresh-btn">Refresh</button>
+          <button class="close-btn" onclick="closeModal('logs-modal')">&times;</button>
+        </div>
+      </div>
+      <input type="hidden" id="logs-modal-appname" value="">
+      <pre id="logs-modal-body" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px;max-height:480px;overflow-y:auto;font-size:12px;line-height:1.6;color:var(--text2);white-space:pre-wrap;word-break:break-all;">Loading...</pre>
+    </div>
+  </div>
+
   <script>
     const API = window.location.origin;
     let authToken = localStorage.getItem('cf-router-token') || '';
@@ -1392,21 +1406,32 @@
         return;
       }
 
-      container.innerHTML = services.map(svc => `
-    <div class="card" style="margin-bottom:12px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div>
-          <strong>${svc.name}</strong><br>
-          <small style="color:var(--text3);">Port: ${svc.port}${svc.subdomain ? ` → ${svc.subdomain}` : ''}</small>
-          ${svc.description ? `<div style="margin-top:4px;font-size:12px;color:var(--text2);">${svc.description}</div>` : ''}
+      container.innerHTML = services.map(svc => {
+        const enabled = svc.enabled !== false;
+        return `
+    <div class="card svc-card ${enabled ? '' : 'svc-disabled'}" id="portless-card-${svc.name}" style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <label class="switch" title="${enabled ? 'Disable' : 'Enable'} service">
+            <input type="checkbox" ${enabled ? 'checked' : ''} onchange="togglePortlessService('${svc.name}', this.checked)">
+            <span class="slider round"></span>
+          </label>
+          <div>
+            <strong>${svc.name}</strong>
+            <span class="badge ${enabled ? 'badge-ok' : 'badge-err'}" style="margin-left:6px;font-size:10px;">${enabled ? 'Enabled' : 'Disabled'}</span><br>
+            <small style="color:var(--text3);">Port: ${svc.port}${svc.subdomain ? ` → ${svc.subdomain}` : ''}</small>
+            ${svc.description ? `<div style="margin-top:2px;font-size:12px;color:var(--text2);">${svc.description}</div>` : ''}
+          </div>
         </div>
-        <div class="actions" style="display:flex;gap:6px;">
-          <button class="btn btn-d" onclick="releasePortless('${svc.name}')">Release</button>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <span class="test-badge" id="test-badge-${svc.name}"></span>
+          <button class="btn btn-s" id="test-btn-${svc.name}" onclick="testPortlessService('${svc.name}')">Test</button>
           <button class="btn btn-s" onclick="updatePortless('${svc.name}')">Edit</button>
+          <button class="btn btn-d" onclick="releasePortless('${svc.name}')">Release</button>
         </div>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+      }).join('');
     }
 
     async function loadAppsSection() {
@@ -1420,32 +1445,58 @@
         return;
       }
 
+      // Fetch all statuses in parallel
+      const statuses = await Promise.all(names.map(n => fetchJSON(`/api/apps/${n}/status`)));
+      const statusMap = {};
+      names.forEach((n, i) => { statusMap[n] = statuses[i] || {}; });
+
       container.innerHTML = names.map(name => {
         const app = apps[name];
-        const status = APP_PROCESSES.has(name) ? 'Running' : 'Stopped';
-        const statusClass = APP_PROCESSES.has(name) ? 'badge-ok' : 'badge-err';
-        const pid = APP_PROCESSES.has(name) ? APP_PROCESSES.get(name).pid : '-';
+        const st = statusMap[name];
+        const running = st.running;
+        const pid = st.pid || '-';
+        const autoStart = app.autoStart || false;
+        const restartPolicy = app.restartPolicy || 'never';
 
         return `
-      <div class="card" style="margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card" id="app-card-${name}" style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
           <div>
-            <strong>${name}</strong><br>
-            <small style="color:var(--text3);">${app.hostname || 'N/A'} • ${app.mode}</small>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <strong>${name}</strong>
+              <span class="badge ${running ? 'badge-ok' : 'badge-err'}">${running ? 'Running' : 'Stopped'}</span>
+              ${running ? `<span class="badge badge-info">PID: ${pid}</span>` : ''}
+              ${autoStart ? `<span class="badge badge-warn" style="font-size:10px;">Auto-start</span>` : ''}
+            </div>
+            <small style="color:var(--text3);">${app.hostname || 'N/A'} • ${app.mode || 'proxy'}</small>
+            <span class="test-badge" id="app-test-badge-${name}" style="margin-left:8px;"></span>
           </div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <span class="badge ${statusClass}">${status}</span>
-            <span class="badge badge-info">PID: ${pid}</span>
-            <div class="actions" style="display:flex;gap:6px;">
-              ${APP_PROCESSES.has(name) ?
-            `<button class="btn btn-s" onclick="stopAppLifecycle('${name}')">Stop</button>` :
-            `<button class="btn btn-p" onclick="startAppLifecycle('${name}')">Start</button>`}
-              <button class="btn btn-s" onclick="viewAppLogs('${name}')">Logs</button>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
+            <div class="actions" style="display:flex;gap:6px;flex-wrap:wrap;">
+              ${running
+                ? `<button class="btn btn-s" onclick="stopAppLifecycle('${name}')">Stop</button>
+                   <button class="btn btn-s" onclick="restartAppLifecycle('${name}')">Restart</button>`
+                : `<button class="btn btn-p" onclick="startAppLifecycle('${name}')">Start</button>`}
+              <button class="btn btn-s" onclick="testAppService('${name}')">Test</button>
+              <button class="btn btn-s" onclick="viewAppLogsModal('${name}')">Logs</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+                <input type="checkbox" ${autoStart ? 'checked' : ''} onchange="configureApp('${name}', {autoStart: this.checked})">
+                Auto-start
+              </label>
+              <label style="font-size:12px;">Restart:
+                <select class="input" style="height:28px;padding:2px 6px;font-size:12px;width:auto;display:inline-block;margin-left:4px;"
+                  onchange="configureApp('${name}', {restartPolicy: this.value})">
+                  <option value="never" ${restartPolicy === 'never' ? 'selected' : ''}>Never</option>
+                  <option value="on-failure" ${restartPolicy === 'on-failure' ? 'selected' : ''}>On Failure</option>
+                  <option value="always" ${restartPolicy === 'always' ? 'selected' : ''}>Always</option>
+                </select>
+              </label>
             </div>
           </div>
         </div>
-      </div>
-    `;
+      </div>`;
       }).join('');
     }
 
@@ -1560,12 +1611,107 @@
       }
     }
 
-    async function viewAppLogs(appName) {
-      const logs = await fetchJSON(`/api/apps/${appName}/logs?lines=50`);
-      if (logs?.logs) {
-        const logText = logs.logs.join('\n');
-        alert(`Logs for ${appName}:\n\n${logText}`);
+    async function restartAppLifecycle(appName) {
+      const res = await fetchJSON(`/api/apps/${appName}/restart`, { method: 'POST' });
+      if (res?.success) {
+        await loadAppsSection();
+        showToast(`App ${appName} restarted (PID: ${res.pid})`, 'success');
       }
+    }
+
+    async function configureApp(appName, config) {
+      const res = await fetchJSON(`/api/apps/${appName}/config`, {
+        method: 'PATCH',
+        body: JSON.stringify(config)
+      });
+      if (res?.success) {
+        showToast(`${appName} config saved`, 'success');
+      }
+    }
+
+    async function testAppService(appName) {
+      const btn = document.getElementById(`app-test-badge-${appName}`) || document.createElement('span');
+      const badge = document.getElementById(`app-test-badge-${appName}`);
+      if (badge) badge.innerHTML = '<span style="color:var(--text3);font-size:11px;">Testing...</span>';
+
+      const status = await fetchJSON(`/api/apps/${appName}/status`);
+      const port = status?.port;
+
+      // Use portless test if service name matches, else test by app port
+      const res = await fetchJSON(`/api/portless/${appName}/test`, { method: 'POST' });
+      if (badge) {
+        if (res?.tcp?.open) {
+          const httpOk = res.http?.ok;
+          const latency = res.http?.latency;
+          const httpStatus = res.http?.status;
+          badge.innerHTML = httpOk
+            ? `<span class="badge badge-ok" style="font-size:10px;">TCP ✓ HTTP ${httpStatus} (${latency}ms)</span>`
+            : `<span class="badge badge-warn" style="font-size:10px;">TCP ✓ HTTP ${httpStatus || 'err'}</span>`;
+        } else {
+          badge.innerHTML = '<span class="badge badge-err" style="font-size:10px;">TCP ✗ closed</span>';
+        }
+      }
+    }
+
+    async function viewAppLogsModal(appName) {
+      const modal = document.getElementById('logs-modal');
+      const title = document.getElementById('logs-modal-title');
+      const body = document.getElementById('logs-modal-body');
+      title.textContent = `Logs: ${appName}`;
+      body.textContent = 'Loading...';
+      showModal('logs-modal');
+
+      const refreshLogs = async () => {
+        const logs = await fetchJSON(`/api/apps/${appName}/logs?lines=100`);
+        body.textContent = logs?.logs?.length ? logs.logs.join('\n') : '(no logs)';
+        body.scrollTop = body.scrollHeight;
+      };
+
+      await refreshLogs();
+      document.getElementById('logs-refresh-btn').onclick = refreshLogs;
+      document.getElementById('logs-modal-appname').value = appName;
+    }
+
+    // Settings: Portless
+    async function togglePortlessService(name, enabled) {
+      const card = document.getElementById(`portless-card-${name}`);
+      const res = await fetchJSON(`/api/portless/${name}/toggle`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled })
+      });
+      if (res?.success) {
+        await loadPortlessSection();
+        showToast(`${name} ${enabled ? 'enabled' : 'disabled'}`, 'success');
+      }
+    }
+
+    async function testPortlessService(name) {
+      const btn = document.getElementById(`test-btn-${name}`);
+      const badge = document.getElementById(`test-badge-${name}`);
+      if (btn) btn.disabled = true;
+      if (badge) badge.innerHTML = '<span style="color:var(--text3);font-size:11px;">Testing...</span>';
+
+      const res = await fetchJSON(`/api/portless/${name}/test`, { method: 'POST' });
+
+      if (btn) btn.disabled = false;
+      if (badge) {
+        if (!res) {
+          badge.innerHTML = '<span class="badge badge-err" style="font-size:10px;">Error</span>';
+        } else if (res.tcp?.open) {
+          const httpOk = res.http?.ok;
+          const latency = res.http?.latency;
+          const httpStatus = res.http?.status;
+          badge.innerHTML = httpOk
+            ? `<span class="badge badge-ok" style="font-size:10px;">TCP ✓ HTTP ${httpStatus} (${latency}ms)</span>`
+            : `<span class="badge badge-warn" style="font-size:10px;">TCP ✓ HTTP ${httpStatus || 'err'}</span>`;
+        } else {
+          badge.innerHTML = '<span class="badge badge-err" style="font-size:10px;">TCP ✗ closed</span>';
+        }
+      }
+    }
+
+    async function viewAppLogs(appName) {
+      await viewAppLogsModal(appName);
     }
 
     // Settings: Backup Management

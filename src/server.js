@@ -22,7 +22,7 @@ const { logAudit, readAudit, auditStats } = require('./audit');
 const { discoverPorts } = require('./discovery');
 const { listTemplates } = require('./templates');
 const { notify, trackServiceHealth, getNotifConfig, saveNotifConfig, maskNotifConfig } = require('./notifier');
-const { registerService, getPort, releaseService, listServices, updateService } = require('./portless');
+const { registerService, getPort, releaseService, listServices, updateService, enableService, disableService, testService } = require('./portless');
 const { getErrorPage, saveErrorPage, listErrorPages, initializeDefaultPages } = require('./error-pages');
 
 
@@ -870,6 +870,23 @@ app.delete('/api/portless/:name', [param('name').trim().matches(/^[a-z0-9-_]+$/i
   res.json({ success: true });
 });
 
+app.patch('/api/portless/:name/toggle', [
+  param('name').trim().matches(/^[a-z0-9-_]+$/i),
+  body('enabled').isBoolean(),
+], handleValidationErrors, asyncHandler(async (req, res) => {
+  const { name } = req.params;
+  const { enabled } = req.body;
+  const svc = enabled ? enableService(name) : disableService(name);
+  res.json({ success: true, enabled: svc.enabled });
+}));
+
+app.post('/api/portless/:name/test', [
+  param('name').trim().matches(/^[a-z0-9-_]+$/i),
+], handleValidationErrors, asyncHandler(async (req, res) => {
+  const result = await testService(req.params.name);
+  res.json(result);
+}));
+
 const APP_PROCESSES = new Map();
 
 app.post('/api/apps/:name/start', [param('name').trim()], handleValidationErrors, asyncHandler(async (req, res) => {
@@ -896,20 +913,8 @@ app.post('/api/apps/:name/start', [param('name').trim()], handleValidationErrors
   }
 
   const cwd = app.cwd || path.join(process.env.HOME, 'apps', req.params.name);
-  const child = exec(command, { cwd, env: { ...process.env, ...app.env } });
-
-  APP_PROCESSES.set(req.params.name, {
-    pid: child.pid,
-    started_at: new Date().toISOString(),
-    command,
-  });
-
-  child.on('exit', (code) => {
-    APP_PROCESSES.delete(req.params.name);
-    console.log(`App ${req.params.name} exited with code ${code}`);
-  });
-
-  res.json({ success: true, pid: child.pid });
+  startAppProcess(req.params.name, { ...app, command, cwd });
+  res.json({ success: true, pid: APP_PROCESSES.get(req.params.name)?.pid });
 }));
 
 app.post('/api/apps/:name/stop', [param('name').trim()], handleValidationErrors, (req, res) => {
@@ -948,6 +953,52 @@ app.get('/api/apps/:name/logs', [param('name').trim(), query('lines').optional()
   const logs = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).slice(-lines);
   res.json({ logs });
 });
+
+app.post('/api/apps/:name/restart', [param('name').trim()], handleValidationErrors, asyncHandler(async (req, res) => {
+  const yaml = require('js-yaml');
+  const name = req.params.name;
+  const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
+  if (!data.apps?.[name]) throw new APIError('App not found', 404, 'not_found');
+
+  // Stop if running
+  const proc = APP_PROCESSES.get(name);
+  if (proc) {
+    try { process.kill(proc.pid, 'SIGTERM'); } catch (e) { /* already dead */ }
+    APP_PROCESSES.delete(name);
+  }
+
+  // Start fresh
+  await new Promise(r => setTimeout(r, 500));
+  const appCfg = data.apps[name];
+  let command = appCfg.command || appCfg.script || 'npm start';
+  if (appCfg.mode === 'portless') {
+    const port = getPort(name) || await registerService(name);
+    command = `PORT=${port} ${appCfg.script || 'npm start'}`;
+  }
+  const cwd = appCfg.cwd || path.join(process.env.HOME, 'apps', name);
+  const child = exec(command, { cwd, env: { ...process.env, ...appCfg.env } });
+  APP_PROCESSES.set(name, { pid: child.pid, started_at: new Date().toISOString(), command });
+  child.on('exit', (code) => {
+    APP_PROCESSES.delete(name);
+  });
+  res.json({ success: true, pid: child.pid });
+}));
+
+app.patch('/api/apps/:name/config', [
+  param('name').trim(),
+  body('autoStart').optional().isBoolean(),
+  body('restartPolicy').optional().isIn(['always', 'on-failure', 'never']),
+], handleValidationErrors, asyncHandler(async (req, res) => {
+  const yaml = require('js-yaml');
+  const name = req.params.name;
+  const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
+  if (!data.apps?.[name]) throw new APIError('App not found', 404, 'not_found');
+
+  if (req.body.autoStart !== undefined) data.apps[name].autoStart = req.body.autoStart;
+  if (req.body.restartPolicy !== undefined) data.apps[name].restartPolicy = req.body.restartPolicy;
+  fs.writeFileSync(APPS_YAML, yaml.dump(data, { lineWidth: -1 }));
+  res.json({ success: true, app: name, autoStart: data.apps[name].autoStart, restartPolicy: data.apps[name].restartPolicy });
+}));
 
 app.get('/api/error-pages', asyncHandler(async (req, res) => {
   res.json(listErrorPages());
@@ -1113,11 +1164,55 @@ app.get('/api/health-status', asyncHandler(async (req, res) => {
 // Patch existing mappings create to support auto_deploy
 const _origMappingCreate = app._router.stack.find(r => r.route?.path === '/api/mappings' && r.route?.methods?.post);
 
+function startAppProcess(name, appCfg) {
+  if (APP_PROCESSES.has(name)) return;
+  let command = appCfg.command || appCfg.script || 'npm start';
+  const cwd = appCfg.cwd || path.join(process.env.HOME, 'apps', name);
+  const child = exec(command, { cwd, env: { ...process.env, ...appCfg.env } });
+  APP_PROCESSES.set(name, { pid: child.pid, started_at: new Date().toISOString(), command });
+  console.log(`[auto-start] Started ${name} (PID: ${child.pid})`);
+
+  const policy = appCfg.restartPolicy || 'never';
+  let backoff = 1000;
+  child.on('exit', (code) => {
+    APP_PROCESSES.delete(name);
+    const shouldRestart = policy === 'always' || (policy === 'on-failure' && code !== 0);
+    if (shouldRestart) {
+      console.log(`[watchdog] ${name} exited (code ${code}), restarting in ${backoff}ms`);
+      setTimeout(() => {
+        backoff = Math.min(backoff * 2, 30000);
+        // Re-read config in case it changed
+        try {
+          const yaml = require('js-yaml');
+          const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
+          startAppProcess(name, data.apps?.[name] || appCfg);
+        } catch (e) {
+          startAppProcess(name, appCfg);
+        }
+      }, backoff);
+    }
+  });
+}
+
 function startServer(port = 7070) {
   return new Promise((resolve) => {
     const server = http.createServer(app);
     setupWebSocket(server);
     initializeDefaultPages();
+    // Auto-start apps with autoStart: true
+    if (fs.existsSync(APPS_YAML)) {
+      try {
+        const yaml = require('js-yaml');
+        const data = yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) || { apps: {} };
+        Object.entries(data.apps || {}).forEach(([name, appCfg]) => {
+          if (appCfg.autoStart) {
+            startAppProcess(name, appCfg);
+          }
+        });
+      } catch (e) {
+        console.error('[auto-start] Failed to read apps.yaml:', e.message);
+      }
+    }
     server.listen(port, '0.0.0.0', () => {
       console.log(`Dashboard: http://localhost:${port}`);
       console.log(`WebSocket: ws://localhost:${port}`);

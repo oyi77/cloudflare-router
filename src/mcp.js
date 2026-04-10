@@ -8,6 +8,7 @@ const { discoverPorts, getUnmappedCandidates } = require('./discovery');
 const { rollback, listRecentBackups } = require('./backup');
 const { readAudit, auditStats } = require('./audit');
 const { getNotifConfig, saveNotifConfig } = require('./notifier');
+const { listServices, enableService, disableService, testService } = require('./portless');
 
 const TOOLS = [
   {
@@ -149,6 +150,61 @@ const TOOLS = [
       properties: {},
       required: []
     }
+  },
+  {
+    name: 'cf_router_app_start',
+    description: 'Start a managed app process by name',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'App name from apps.yaml' } }, required: ['name'] }
+  },
+  {
+    name: 'cf_router_app_stop',
+    description: 'Stop a running managed app process by name',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'App name' } }, required: ['name'] }
+  },
+  {
+    name: 'cf_router_app_restart',
+    description: 'Restart a managed app process (stop then start)',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'App name' } }, required: ['name'] }
+  },
+  {
+    name: 'cf_router_app_status',
+    description: 'Get status, PID, autoStart, and restartPolicy for a managed app',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'App name' } }, required: ['name'] }
+  },
+  {
+    name: 'cf_router_app_logs',
+    description: 'Get the last N log lines for a managed app',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'App name' }, lines: { type: 'number', description: 'Number of log lines to return (default 50)' } }, required: ['name'] }
+  },
+  {
+    name: 'cf_router_app_config',
+    description: 'Set autoStart and/or restartPolicy for a managed app',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'App name' }, autoStart: { type: 'boolean', description: 'Auto-start on server boot' }, restartPolicy: { type: 'string', enum: ['always', 'on-failure', 'never'], description: 'Restart policy' } }, required: ['name'] }
+  },
+  {
+    name: 'cf_router_app_test',
+    description: 'Run TCP and HTTP connectivity test on a managed app port',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'App name' } }, required: ['name'] }
+  },
+  {
+    name: 'cf_router_portless_list',
+    description: 'List all registered portless services with their ports and enabled status',
+    inputSchema: { type: 'object', properties: {}, required: [] }
+  },
+  {
+    name: 'cf_router_portless_enable',
+    description: 'Enable a portless service by name',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Service name' } }, required: ['name'] }
+  },
+  {
+    name: 'cf_router_portless_disable',
+    description: 'Disable a portless service by name',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Service name' } }, required: ['name'] }
+  },
+  {
+    name: 'cf_router_portless_test',
+    description: 'Run TCP and HTTP connectivity test on a portless service port',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Service name' } }, required: ['name'] }
   }
 ];
 
@@ -325,6 +381,153 @@ async function handleToolCall(name, args) {
           }
         }
       };
+    }
+
+    case 'cf_router_app_start': {
+      const { name } = args;
+      if (!name) return { error: 'name is required', code: 'missing_param' };
+      const yaml = require('js-yaml');
+      const fs = require('fs');
+      const path = require('path');
+      const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
+      const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
+      if (!fs.existsSync(APPS_YAML)) return { error: 'No apps configured', code: 'not_found' };
+      const data = yaml.load(fs.readFileSync(APPS_YAML, 'utf8'));
+      if (!data?.apps?.[name]) return { error: `App not found: ${name}`, code: 'not_found' };
+      const { exec } = require('child_process');
+      const appCfg = data.apps[name];
+      const command = appCfg.command || appCfg.script || 'npm start';
+      const cwd = appCfg.cwd || path.join(process.env.HOME, 'apps', name);
+      return new Promise((resolve) => {
+        const child = exec(command, { cwd, env: { ...process.env, ...appCfg.env } });
+        resolve({ success: true, pid: child.pid, name, command });
+      });
+    }
+
+    case 'cf_router_app_stop': {
+      const { name } = args;
+      if (!name) return { error: 'name is required', code: 'missing_param' };
+      try {
+        const { execSync } = require('child_process');
+        execSync(`pkill -f "apps/${name}" 2>/dev/null || true`, { timeout: 3000 });
+        return { success: true, name };
+      } catch (e) {
+        return { error: e.message, code: 'stop_failed' };
+      }
+    }
+
+    case 'cf_router_app_restart': {
+      const { name } = args;
+      if (!name) return { error: 'name is required', code: 'missing_param' };
+      try {
+        const { execSync, exec } = require('child_process');
+        const fs = require('fs');
+        const path = require('path');
+        const yaml = require('js-yaml');
+        const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
+        const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
+        execSync(`pkill -f "apps/${name}" 2>/dev/null || true`, { timeout: 3000 });
+        await new Promise(r => setTimeout(r, 500));
+        const data = yaml.load(fs.readFileSync(APPS_YAML, 'utf8'));
+        const appCfg = data?.apps?.[name];
+        if (!appCfg) return { error: `App not found: ${name}`, code: 'not_found' };
+        const command = appCfg.command || appCfg.script || 'npm start';
+        const cwd = appCfg.cwd || path.join(process.env.HOME, 'apps', name);
+        const child = exec(command, { cwd, env: { ...process.env, ...appCfg.env } });
+        return { success: true, pid: child.pid, name };
+      } catch (e) {
+        return { error: e.message, code: 'restart_failed' };
+      }
+    }
+
+    case 'cf_router_app_status': {
+      const { name } = args;
+      if (!name) return { error: 'name is required', code: 'missing_param' };
+      const fs = require('fs');
+      const path = require('path');
+      const yaml = require('js-yaml');
+      const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
+      const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
+      const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
+      const appCfg = data?.apps?.[name];
+      if (!appCfg) return { error: `App not found: ${name}`, code: 'not_found' };
+      return { success: true, name, autoStart: appCfg.autoStart || false, restartPolicy: appCfg.restartPolicy || 'never', config: appCfg };
+    }
+
+    case 'cf_router_app_logs': {
+      const { name, lines = 50 } = args;
+      if (!name) return { error: 'name is required', code: 'missing_param' };
+      const fs = require('fs');
+      const path = require('path');
+      const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
+      const logFile = path.join(CONFIG_DIR, 'logs', `app-${name}.log`);
+      if (!fs.existsSync(logFile)) return { success: true, logs: [], name };
+      const logs = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).slice(-lines);
+      return { success: true, name, logs };
+    }
+
+    case 'cf_router_app_config': {
+      const { name, autoStart, restartPolicy } = args;
+      if (!name) return { error: 'name is required', code: 'missing_param' };
+      const fs = require('fs');
+      const path = require('path');
+      const yaml = require('js-yaml');
+      const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
+      const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
+      const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
+      if (!data?.apps?.[name]) return { error: `App not found: ${name}`, code: 'not_found' };
+      if (autoStart !== undefined) data.apps[name].autoStart = autoStart;
+      if (restartPolicy !== undefined) data.apps[name].restartPolicy = restartPolicy;
+      fs.writeFileSync(APPS_YAML, yaml.dump(data, { lineWidth: -1 }));
+      return { success: true, name, autoStart: data.apps[name].autoStart, restartPolicy: data.apps[name].restartPolicy };
+    }
+
+    case 'cf_router_app_test': {
+      const { name } = args;
+      if (!name) return { error: 'name is required', code: 'missing_param' };
+      try {
+        const result = await testService(name);
+        return { success: true, name, ...result };
+      } catch (e) {
+        return { error: e.message, code: 'test_failed' };
+      }
+    }
+
+    case 'cf_router_portless_list': {
+      return { success: true, services: listServices() };
+    }
+
+    case 'cf_router_portless_enable': {
+      const { name } = args;
+      if (!name) return { error: 'name is required', code: 'missing_param' };
+      try {
+        const svc = enableService(name);
+        return { success: true, name, enabled: svc.enabled };
+      } catch (e) {
+        return { error: e.message, code: 'enable_failed' };
+      }
+    }
+
+    case 'cf_router_portless_disable': {
+      const { name } = args;
+      if (!name) return { error: 'name is required', code: 'missing_param' };
+      try {
+        const svc = disableService(name);
+        return { success: true, name, enabled: svc.enabled };
+      } catch (e) {
+        return { error: e.message, code: 'disable_failed' };
+      }
+    }
+
+    case 'cf_router_portless_test': {
+      const { name } = args;
+      if (!name) return { error: 'name is required', code: 'missing_param' };
+      try {
+        const result = await testService(name);
+        return { success: true, name, ...result };
+      } catch (e) {
+        return { error: e.message, code: 'test_failed' };
+      }
     }
 
     default:

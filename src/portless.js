@@ -81,6 +81,7 @@ async function registerService(serviceName, opts = {}) {
     description: opts.description || '',
     account: opts.account || null,
     zone: opts.zone || null,
+    enabled: true,
     registered_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -157,6 +158,70 @@ function getEnvMap() {
   return env;
 }
 
+/**
+ * Enable a registered service.
+ * @param {string} serviceName
+ */
+function enableService(serviceName) {
+  const data = loadPortless();
+  if (!data.services || !data.services[serviceName]) throw new Error(`Service not registered: ${serviceName}`);
+  data.services[serviceName].enabled = true;
+  data.services[serviceName].updated_at = new Date().toISOString();
+  savePortless(data);
+  return data.services[serviceName];
+}
+
+/**
+ * Disable a registered service.
+ * @param {string} serviceName
+ */
+function disableService(serviceName) {
+  const data = loadPortless();
+  if (!data.services || !data.services[serviceName]) throw new Error(`Service not registered: ${serviceName}`);
+  data.services[serviceName].enabled = false;
+  data.services[serviceName].updated_at = new Date().toISOString();
+  savePortless(data);
+  return data.services[serviceName];
+}
+
+/**
+ * TCP + HTTP health check for a registered service.
+ * @param {string} serviceName
+ * @returns {Promise<object>} { tcp: { open, port }, http?: { status, ok, latency } }
+ */
+async function testService(serviceName) {
+  const data = loadPortless();
+  const svc = (data.services || {})[serviceName];
+  if (!svc) throw new Error(`Service not registered: ${serviceName}`);
+  const port = svc.port;
+
+  // TCP check
+  const tcpOpen = await new Promise((resolve) => {
+    const socket = new net.Socket();
+    const timer = setTimeout(() => { socket.destroy(); resolve(false); }, 3000);
+    socket.connect(port, '127.0.0.1', () => { clearTimeout(timer); socket.destroy(); resolve(true); });
+    socket.on('error', () => { clearTimeout(timer); resolve(false); });
+  });
+
+  const result = { tcp: { open: tcpOpen, port } };
+
+  if (tcpOpen) {
+    const start = Date.now();
+    const httpResult = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ status: null, ok: false, latency: 5000 }), 5000);
+      const req = require('http').get(`http://127.0.0.1:${port}/`, (res) => {
+        clearTimeout(timer);
+        resolve({ status: res.statusCode, ok: res.statusCode < 400, latency: Date.now() - start });
+        res.resume();
+      });
+      req.on('error', () => { clearTimeout(timer); resolve({ status: null, ok: false, latency: Date.now() - start }); });
+    });
+    result.http = httpResult;
+  }
+
+  return result;
+}
+
 module.exports = {
   registerService,
   getPort,
@@ -164,6 +229,9 @@ module.exports = {
   listServices,
   updateService,
   getEnvMap,
+  enableService,
+  disableService,
+  testService,
   PORT_RANGE_START,
   PORT_RANGE_END,
 };
