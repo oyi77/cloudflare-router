@@ -1,6 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 const { loadConfig, saveConfig, CONFIG_DIR, MAPPINGS_DIR } = require('./config');
 
 const backupsDir = path.join(CONFIG_DIR, 'backups');
@@ -44,7 +43,10 @@ function restoreBackup(backupFile) {
   if (backup.mappings) {
     if (!fs.existsSync(MAPPINGS_DIR)) fs.mkdirSync(MAPPINGS_DIR, { recursive: true });
     Object.entries(backup.mappings).forEach(([filename, content]) => {
-      fs.writeFileSync(path.join(MAPPINGS_DIR, filename), content);
+      if (!/^[a-zA-Z0-9_.-]+\.yml$/.test(filename)) return; // skip unsafe
+      const resolved = path.resolve(MAPPINGS_DIR, filename);
+      if (!resolved.startsWith(path.resolve(MAPPINGS_DIR))) return;
+      fs.writeFileSync(resolved, content);
     });
   }
   
@@ -76,41 +78,43 @@ function cleanupOldBackups(maxBackups = 30) {
   }
 }
 
-function runHealthCheck(urls) {
+async function runHealthCheck(urls) {
+  const axios = require('axios');
   const results = [];
-  
-  urls.forEach(({ name, url }) => {
+  for (const { name, url } of urls) {
+    const startTime = Date.now();
     try {
-      const startTime = Date.now();
-      const status = execSync(`curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${url}"`, { encoding: 'utf8' }).trim();
+      new URL(url); // validates URL format, throws on invalid
+      const response = await axios.get(url, {
+        timeout: 5000,
+        validateStatus: () => true,
+        maxRedirects: 3,
+      });
       const latency = Date.now() - startTime;
-      
       results.push({
-        name,
-        url,
-        status: status === '200' ? 'healthy' : 'unhealthy',
-        httpStatus: parseInt(status),
+        name, url,
+        status: response.status >= 200 && response.status < 400 ? 'healthy' : 'unhealthy',
+        httpStatus: response.status,
         latency,
         checkedAt: new Date().toISOString()
       });
     } catch (error) {
       results.push({
-        name,
-        url,
+        name, url,
         status: 'unhealthy',
         error: error.message,
         checkedAt: new Date().toISOString()
       });
     }
-  });
-  
+  }
+
   healthHistory.push({
     timestamp: new Date().toISOString(),
     results
   });
-  
+
   if (healthHistory.length > 1440) healthHistory.shift();
-  
+
   return results;
 }
 

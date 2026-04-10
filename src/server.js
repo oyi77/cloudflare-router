@@ -9,7 +9,8 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const { execSync, exec } = require('child_process');
 const net = require('net');
-const tls = require('tls');
+const crypto = require('crypto');
+const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const { loadConfig, saveConfig, addAccount, removeAccount, addZoneToAccount, removeZoneFromAccount, addMapping, removeMapping, toggleMapping, getAllMappings, CONFIG_DIR, MAPPINGS_DIR } = require('./config');
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
@@ -24,7 +25,12 @@ const { listTemplates } = require('./templates');
 const { notify, trackServiceHealth, getNotifConfig, saveNotifConfig, maskNotifConfig } = require('./notifier');
 const { registerService, getPort, releaseService, listServices, updateService, enableService, disableService, testService } = require('./portless');
 const { getErrorPage, saveErrorPage, listErrorPages, initializeDefaultPages } = require('./error-pages');
+const { APP_PROCESSES, RESTARTING, startAppProcess, stopApp } = require('./app-manager');
+const yaml = require('js-yaml');
 
+process.on('unhandledRejection', (err) => {
+  writeLog(`unhandledRejection: ${err && err.stack ? err.stack : err}`);
+});
 
 const app = express();
 
@@ -74,10 +80,61 @@ const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || '';
 const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
 const WEBHOOK_URL = process.env.WEBHOOK_URL || '';
 
+const AUTH_TOKENS = new Map();
+const TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_TOKENS = 100;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, data] of AUTH_TOKENS) {
+    if (now - data.created > TOKEN_TTL_MS) AUTH_TOKENS.delete(token);
+  }
+}, 15 * 60 * 1000).unref(); // unref() so it doesn't keep the process alive
+
+function safeEqual(a, b) {
+  if (!a || !b) return false;
+  try {
+    const ab = Buffer.from(String(a)), bb = Buffer.from(String(b));
+    if (ab.length !== bb.length) return false;
+    return crypto.timingSafeEqual(ab, bb);
+  } catch { return false; }
+}
+
+function sanitizeAppConfig(body) {
+  const ALLOWED = { command: 'string', script: 'string', cwd: 'string', mode: 'string',
+    port: 'number', restartPolicy: 'string', enabled: 'boolean', autoStart: 'boolean' };
+  const VALID_POLICIES = ['always', 'on-failure', 'never'];
+  const result = {};
+  for (const [key, type] of Object.entries(ALLOWED)) {
+    if (body[key] === undefined) continue;
+    if (typeof body[key] !== type) throw new Error(`${key} must be ${type}`);
+    if (key === 'restartPolicy' && !VALID_POLICIES.includes(body[key]))
+      throw new Error('restartPolicy must be always, on-failure, or never');
+    if (key === 'port' && (body[key] < 1 || body[key] > 65535))
+      throw new Error('port must be 1-65535');
+    result[key] = body[key];
+  }
+  if (body.env && typeof body.env === 'object' && !Array.isArray(body.env)) {
+    for (const v of Object.values(body.env)) {
+      if (typeof v !== 'string') throw new Error('env values must be strings');
+    }
+    result.env = body.env;
+  }
+  return result;
+}
+
 function authMiddleware(req, res, next) {
   if (!DASHBOARD_PASSWORD && !AUTH_TOKEN) return next();
   const token = req.headers['authorization']?.replace('Bearer ', '') || req.query?.token;
-  if (token === AUTH_TOKEN || token === DASHBOARD_PASSWORD) return next();
+  if (safeEqual(token, DASHBOARD_PASSWORD)) return next();
+  const tokenData = AUTH_TOKENS.get(token);
+  if (tokenData) {
+    if (Date.now() - tokenData.created > TOKEN_TTL_MS) {
+      AUTH_TOKENS.delete(token);
+      return res.status(401).json({ error: 'Token expired', code: 'token_expired' });
+    }
+    return next();
+  }
   res.status(401).json({ error: 'Unauthorized', code: 'auth_required' });
 }
 
@@ -137,9 +194,19 @@ app.post('/api/auth/login', authRateLimit, (req, res) => {
     return res.status(400).json({ error: 'Password is required', code: 'password_missing' });
   }
 
-  if (password === DASHBOARD_PASSWORD) {
+  if (safeEqual(password, DASHBOARD_PASSWORD)) {
+    // Evict oldest if at capacity
+    if (AUTH_TOKENS.size >= MAX_TOKENS) {
+      let oldestKey = null, oldestTime = Infinity;
+      for (const [k, v] of AUTH_TOKENS) {
+        if (v.created < oldestTime) { oldestTime = v.created; oldestKey = k; }
+      }
+      if (oldestKey) AUTH_TOKENS.delete(oldestKey);
+    }
+    const token = crypto.randomBytes(32).toString('hex');
+    AUTH_TOKENS.set(token, { created: Date.now() });
     console.log(`[AUTH] Login success from ${ip}`);
-    return res.json({ success: true, token: DASHBOARD_PASSWORD });
+    return res.json({ success: true, token });
   }
 
   console.warn(`[AUTH] Login failed: Invalid password from ${ip}`);
@@ -265,17 +332,17 @@ app.delete('/api/accounts/:id/zones/:zoneId', (req, res) => {
   catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.get('/api/accounts/:id/zones/:zoneId/dns', async (req, res) => {
+app.get('/api/accounts/:id/zones/:zoneId/dns', asyncHandler(async (req, res) => {
   try { res.json(await listDNSRecords(req.params.id, req.params.zoneId)); }
   catch (error) { res.status(500).json({ error: error.message }); }
-});
+}));
 
-app.get('/api/accounts/:id/tunnels', async (req, res) => {
+app.get('/api/accounts/:id/tunnels', asyncHandler(async (req, res) => {
   try { res.json(await listTunnelsForAccount(req.params.id)); }
   catch (error) { res.status(500).json({ error: error.message }); }
-});
+}));
 
-app.get('/api/dns/all', async (req, res) => {
+app.get('/api/dns/all', asyncHandler(async (req, res) => {
   try {
     const config = loadConfig();
     const allDNS = [];
@@ -289,9 +356,9 @@ app.get('/api/dns/all', async (req, res) => {
     }
     res.json(allDNS);
   } catch (error) { res.status(500).json({ error: error.message }); }
-});
+}));
 
-app.get('/api/tunnels/all', async (req, res) => {
+app.get('/api/tunnels/all', asyncHandler(async (req, res) => {
   try {
     const config = loadConfig();
     const allTunnels = [];
@@ -303,7 +370,7 @@ app.get('/api/tunnels/all', async (req, res) => {
     }
     res.json(allTunnels);
   } catch (error) { res.status(500).json({ error: error.message }); }
-});
+}));
 
 app.get('/api/mappings', validators.list, handleValidationErrors, asyncHandler(async (req, res) => {
   const { page = 1, limit = 50, sort, filter } = req.query;
@@ -381,7 +448,7 @@ app.post('/api/generate', (req, res) => {
   catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-app.post('/api/deploy', async (req, res) => {
+app.post('/api/deploy', asyncHandler(async (req, res) => {
   try {
     const config = loadConfig();
     const allResults = [];
@@ -398,16 +465,16 @@ app.post('/api/deploy', async (req, res) => {
     notify('deploy_fail', { error: error.message });
     res.status(500).json({ error: error.message });
   }
-});
+}));
 
-app.post('/api/cloudflare/sync', async (req, res) => {
+app.post('/api/cloudflare/sync', asyncHandler(async (req, res) => {
   try {
     const { account_id, zone_id } = req.body;
     if (!account_id || !zone_id) throw new APIError('Account ID and Zone ID required', 400);
     const results = await syncZoneCloudflare(account_id, zone_id);
     res.json({ success: true, results });
   } catch (error) { res.status(500).json({ error: error.message }); }
-});
+}));
 
 async function triggerAutoSync(accountId, zoneId) {
   try {
@@ -520,8 +587,15 @@ app.get('/api/backup/list', (req, res) => {
 app.post('/api/backup/restore', (req, res) => {
   try {
     const { file } = req.body;
+    if (!file || !/^[a-zA-Z0-9_.-]+\.json$/.test(file)) {
+      return res.status(400).json({ error: 'Invalid backup filename' });
+    }
     const backupDir = path.join(CONFIG_DIR, 'backups');
-    const result = restoreBackup(path.join(backupDir, file));
+    const resolved = path.resolve(backupDir, file);
+    if (!resolved.startsWith(path.resolve(backupDir))) {
+      return res.status(400).json({ error: 'Path traversal detected' });
+    }
+    const result = restoreBackup(resolved);
     res.json({ success: true, ...result });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -532,16 +606,22 @@ app.get('/api/backup/config', (req, res) => {
   res.json(getBackupConfig());
 });
 
+const ALLOWED_BACKUP_CONFIG_FIELDS = new Set(['enabled', 'interval', 'maxBackups', 'destination', 'compress', 'encrypt', 'healthUrls']);
+
 app.put('/api/backup/config', (req, res) => {
-  saveBackupConfig(req.body);
+  const safe = {};
+  for (const key of ALLOWED_BACKUP_CONFIG_FIELDS) {
+    if (key in req.body) safe[key] = req.body[key];
+  }
+  saveBackupConfig(safe);
   res.json({ success: true });
 });
 
-app.post('/api/health-check/run', (req, res) => {
+app.post('/api/health-check/run', asyncHandler(async (req, res) => {
   const { urls } = req.body;
-  const results = runHealthCheck(urls || []);
+  const results = await runHealthCheck(urls || []);
   res.json(results);
-});
+}));
 
 app.get('/api/health-check/history', (req, res) => {
   res.json(getHealthHistory(parseInt(req.query.hours) || 24));
@@ -561,11 +641,18 @@ app.get('/api/nginx/configs', (req, res) => {
 
 app.put('/api/nginx/configs/:file', (req, res) => {
   try {
+    const file = req.params.file;
+    if (!/^[a-zA-Z0-9_.-]+\.conf$/.test(file)) {
+      return res.status(400).json({ error: 'Invalid config filename' });
+    }
     const sitesDir = path.join(CONFIG_DIR, 'nginx', 'sites');
-    const filePath = path.join(sitesDir, req.params.file);
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Config not found' });
-    fs.writeFileSync(filePath, req.body.content);
-    res.json({ success: true, file: req.params.file });
+    const resolved = path.resolve(sitesDir, file);
+    if (!resolved.startsWith(path.resolve(sitesDir))) {
+      return res.status(400).json({ error: 'Path traversal detected' });
+    }
+    if (!fs.existsSync(resolved)) return res.status(404).json({ error: 'Config not found' });
+    fs.writeFileSync(resolved, req.body.content);
+    res.json({ success: true, file });
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
@@ -583,7 +670,6 @@ const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
 app.get('/api/apps', (req, res) => {
   try {
     if (!fs.existsSync(APPS_YAML)) return res.json({ apps: {} });
-    const yaml = require('js-yaml');
     const data = yaml.load(fs.readFileSync(APPS_YAML, 'utf8'));
     res.json(data || { apps: {} });
   } catch (error) { res.status(500).json({ error: error.message }); }
@@ -591,26 +677,33 @@ app.get('/api/apps', (req, res) => {
 
 app.put('/api/apps', (req, res) => {
   try {
-    const yaml = require('js-yaml');
-    fs.writeFileSync(APPS_YAML, yaml.dump(req.body, { lineWidth: -1 }));
+    const sanitized = { apps: {} };
+    if (req.body.apps && typeof req.body.apps === 'object') {
+      for (const [name, config] of Object.entries(req.body.apps)) {
+        if (!/^[a-zA-Z0-9_-]+$/.test(name)) return res.status(400).json({ error: `Invalid app name: ${name}` });
+        sanitized.apps[name] = sanitizeAppConfig(config);
+      }
+    }
+    fs.writeFileSync(APPS_YAML, yaml.dump(sanitized, { lineWidth: -1 }));
     res.json({ success: true });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) { res.status(400).json({ error: error.message }); }
 });
 
 app.put('/api/apps/:name', (req, res) => {
   try {
-    const yaml = require('js-yaml');
+    const name = req.params.name;
+    if (!/^[a-zA-Z0-9_-]+$/.test(name)) return res.status(400).json({ error: 'Invalid app name' });
+    const sanitized = sanitizeAppConfig(req.body);
     const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
     data.apps = data.apps || {};
-    data.apps[req.params.name] = req.body;
+    data.apps[name] = sanitized;
     fs.writeFileSync(APPS_YAML, yaml.dump(data, { lineWidth: -1 }));
-    res.json({ success: true, app: req.params.name });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+    res.json({ success: true, app: name });
+  } catch (error) { res.status(400).json({ error: error.message }); }
 });
 
 app.delete('/api/apps/:name', (req, res) => {
   try {
-    const yaml = require('js-yaml');
     const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
     delete data.apps[req.params.name];
     fs.writeFileSync(APPS_YAML, yaml.dump(data, { lineWidth: -1 }));
@@ -627,6 +720,8 @@ app.post('/api/health-check/add', (req, res) => {
 });
 
 app.delete('/api/health-check/:id', (req, res) => {
+  const check = healthChecks.get(req.params.id);
+  if (check && check.timeoutHandle) clearTimeout(check.timeoutHandle);
   healthChecks.delete(req.params.id);
   res.json({ success: true });
 });
@@ -639,19 +734,29 @@ function executeHealthCheck(id) {
   const check = healthChecks.get(id);
   if (!check) return;
   const startTime = Date.now();
-  exec(`curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${check.url}"`, (err, stdout) => {
+  axios.get(check.url, { timeout: 5000, validateStatus: () => true }).then(response => {
     const elapsed = Date.now() - startTime;
-    check.status = (!err && stdout.trim() === '200') ? 'healthy' : 'unhealthy';
+    check.status = (response.status === 200) ? 'healthy' : 'unhealthy';
     check.latency = elapsed;
     check.lastCheck = new Date().toISOString();
     if (check.status === 'unhealthy' && WEBHOOK_URL) {
       sendWebhook(`Health check failed: ${check.name} (${check.url})`);
     }
+  }).catch(() => {
+    const elapsed = Date.now() - startTime;
+    check.status = 'unhealthy';
+    check.latency = elapsed;
+    check.lastCheck = new Date().toISOString();
+    if (WEBHOOK_URL) {
+      sendWebhook(`Health check failed: ${check.name} (${check.url})`);
+    }
   });
-  setTimeout(() => executeHealthCheck(id), check.interval);
+  check.timeoutHandle = setTimeout(() => executeHealthCheck(id), check.interval);
 }
 
-app.get('/api/ssl/all', async (req, res) => {
+const DOMAIN_RE = /^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+app.get('/api/ssl/all', asyncHandler(async (req, res) => {
   try {
     // Collect domains from mappings, nginx configs, and apps.yaml
     const domains = new Set();
@@ -668,6 +773,10 @@ app.get('/api/ssl/all', async (req, res) => {
     } catch (e) { }
     const results = [];
     for (const domain of [...domains].slice(0, 30)) {
+      if (!DOMAIN_RE.test(domain)) {
+        results.push({ domain, error: 'Invalid domain format, skipped' });
+        continue;
+      }
       try {
         const result = execSync(`echo | openssl s_client -connect ${domain}:443 -servername ${domain} 2>/dev/null | openssl x509 -noout -dates 2>/dev/null`, { encoding: 'utf8', timeout: 5000 });
         const notAfter = result.split('\n').find(l => l.startsWith('notAfter='))?.split('=')[1];
@@ -677,11 +786,12 @@ app.get('/api/ssl/all', async (req, res) => {
     }
     res.json(results);
   } catch (error) { res.status(500).json({ error: error.message }); }
-});
+}));
 
-app.get('/api/ssl/:domain', async (req, res) => {
+app.get('/api/ssl/:domain', asyncHandler(async (req, res) => {
   try {
     const domain = req.params.domain;
+    if (!DOMAIN_RE.test(domain)) return res.status(400).json({ error: 'Invalid domain' });
     const result = execSync(`echo | openssl s_client -connect ${domain}:443 -servername ${domain} 2>/dev/null | openssl x509 -noout -dates -subject -issuer 2>/dev/null`, { encoding: 'utf8', timeout: 10000 });
     const lines = result.split('\n').filter(Boolean);
     const ssl = {};
@@ -697,12 +807,21 @@ app.get('/api/ssl/:domain', async (req, res) => {
     }
     res.json({ domain, ...ssl });
   } catch (error) { res.status(500).json({ error: error.message }); }
-});
+}));
 
 app.post('/api/tunnel/restart', (req, res) => {
   try {
     const { configPath } = req.body;
     const config = configPath || path.join(process.env.HOME, '.cloudflared', 'config.yml');
+    if (configPath) {
+      try {
+        const resolved = fs.realpathSync(configPath);
+        const allowedDir = path.join(process.env.HOME, '.cloudflared');
+        if (!resolved.startsWith(allowedDir)) return res.status(400).json({ error: 'Invalid config path' });
+        const base = path.basename(resolved);
+        if (!/^[a-zA-Z0-9_.-]+\.yml$/.test(base)) return res.status(400).json({ error: 'Invalid config filename' });
+      } catch (e) { return res.status(400).json({ error: 'Config file not found' }); }
+    }
     execSync(`pkill -f "cloudflared.*${path.basename(config)}" 2>/dev/null; sleep 1; nohup cloudflared tunnel --config ${config} run &`, { timeout: 5000 });
     res.json({ success: true, message: 'Tunnel restarting...' });
   } catch (error) { res.status(500).json({ error: error.message }); }
@@ -741,12 +860,23 @@ app.post('/api/config/import', (req, res) => {
     const { config, mappings } = req.body;
     if (config) saveConfig(config);
     if (mappings) {
+      const SAFE_MAPPING_FILENAME = /^[a-zA-Z0-9_.-]+\.yml$/;
       Object.entries(mappings).forEach(([filename, content]) => {
-        fs.writeFileSync(path.join(MAPPINGS_DIR, filename), content);
+        if (!SAFE_MAPPING_FILENAME.test(filename)) {
+          throw Object.assign(new Error(`Invalid mapping filename: ${filename}`), { status: 400 });
+        }
+        const resolved = path.resolve(MAPPINGS_DIR, filename);
+        if (!resolved.startsWith(path.resolve(MAPPINGS_DIR))) {
+          throw Object.assign(new Error('Path traversal detected'), { status: 400 });
+        }
+        fs.writeFileSync(resolved, content);
       });
     }
     res.json({ success: true });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) {
+    if (error.status === 400) return res.status(400).json({ error: error.message });
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/api/webhooks', (req, res) => {
@@ -755,6 +885,12 @@ app.get('/api/webhooks', (req, res) => {
 
 app.post('/api/webhooks', (req, res) => {
   const { url, events } = req.body;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return res.status(400).json({ error: 'Webhook URL must use HTTPS' });
+  } catch {
+    return res.status(400).json({ error: 'Invalid webhook URL' });
+  }
   webhooks.push({ id: Date.now().toString(), url, events: events || ['health.down', 'deploy.complete'], active: true });
   res.json({ success: true });
 });
@@ -767,11 +903,20 @@ app.delete('/api/webhooks/:id', (req, res) => {
 
 function sendWebhook(message, event = 'alert') {
   if (!WEBHOOK_URL) return;
-  exec(`curl -s -X POST -H "Content-Type: application/json" -d '{"text":"${message}","event":"${event}"}' "${WEBHOOK_URL}"`, () => { });
+  axios.post(WEBHOOK_URL, { text: message, event }, { timeout: 5000 }).catch(() => {});
 }
 
 app.post('/api/scan-ports', (req, res) => {
   const { ports } = req.body;
+  if (ports !== undefined) {
+    if (!Array.isArray(ports)) return res.status(400).json({ error: 'ports must be an array' });
+    if (ports.length > 100) return res.status(400).json({ error: 'ports array limited to 100 items' });
+    for (const p of ports) {
+      if (!Number.isInteger(p) || p < 1 || p > 65535) {
+        return res.status(400).json({ error: `Invalid port: ${p}. Must be integer in [1, 65535]` });
+      }
+    }
+  }
   const portsToScan = ports || [80, 443, 3000, 3001, 3002, 3003, 5432, 6379, 6969, 7070, 8080, 8443];
   const results = [];
   let completed = 0;
@@ -820,9 +965,10 @@ app.post('/api/servers', [
   body('keyPath').optional().trim(),
 ], handleValidationErrors, (req, res) => {
   const data = loadServers();
+  const { name, type, host, port, username, keyPath } = req.body;
   const server = {
     id: uuidv4(),
-    ...req.body,
+    name, type, host, port, username, keyPath,
     created_at: new Date().toISOString(),
   };
   data.servers.push(server);
@@ -887,10 +1033,7 @@ app.post('/api/portless/:name/test', [
   res.json(result);
 }));
 
-const APP_PROCESSES = new Map();
-
 app.post('/api/apps/:name/start', [param('name').trim()], handleValidationErrors, asyncHandler(async (req, res) => {
-  const yaml = require('js-yaml');
   if (!fs.existsSync(APPS_YAML)) throw new APIError('No apps configured', 404, 'not_found');
 
   const data = yaml.load(fs.readFileSync(APPS_YAML, 'utf8'));
@@ -954,33 +1097,24 @@ app.get('/api/apps/:name/logs', [param('name').trim(), query('lines').optional()
 });
 
 app.post('/api/apps/:name/restart', [param('name').trim()], handleValidationErrors, asyncHandler(async (req, res) => {
-  const yaml = require('js-yaml');
   const name = req.params.name;
-  const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
-  if (!data.apps?.[name]) throw new APIError('App not found', 404, 'not_found');
 
-  // Stop if running
-  const proc = APP_PROCESSES.get(name);
-  if (proc) {
-    try { process.kill(proc.pid, 'SIGTERM'); } catch (e) { /* already dead */ }
-    APP_PROCESSES.delete(name);
+  if (RESTARTING.has(name)) {
+    return res.status(409).json({ error: 'App restart already in progress' });
   }
+  RESTARTING.add(name);
+  try {
+    const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
+    if (!data.apps?.[name]) throw new APIError('App not found', 404, 'not_found');
+    const appCfg = data.apps[name];
 
-  // Start fresh
-  await new Promise(r => setTimeout(r, 500));
-  const appCfg = data.apps[name];
-  let command = appCfg.command || appCfg.script || 'npm start';
-  if (appCfg.mode === 'portless') {
-    const port = getPort(name) || await registerService(name);
-    command = `PORT=${port} ${appCfg.script || 'npm start'}`;
+    stopApp(name);
+    await new Promise(r => setTimeout(r, 500));
+    startAppProcess(name, appCfg);
+    res.json({ success: true });
+  } finally {
+    RESTARTING.delete(name);
   }
-  const cwd = appCfg.cwd || path.join(process.env.HOME, 'apps', name);
-  const child = exec(command, { cwd, env: { ...process.env, ...appCfg.env } });
-  APP_PROCESSES.set(name, { pid: child.pid, started_at: new Date().toISOString(), command });
-  child.on('exit', (code) => {
-    APP_PROCESSES.delete(name);
-  });
-  res.json({ success: true, pid: child.pid });
 }));
 
 app.patch('/api/apps/:name/config', [
@@ -988,7 +1122,6 @@ app.patch('/api/apps/:name/config', [
   body('autoStart').optional().isBoolean(),
   body('restartPolicy').optional().isIn(['always', 'on-failure', 'never']),
 ], handleValidationErrors, asyncHandler(async (req, res) => {
-  const yaml = require('js-yaml');
   const name = req.params.name;
   const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
   if (!data.apps?.[name]) throw new APIError('App not found', 404, 'not_found');
@@ -1058,7 +1191,23 @@ app.use('/', express.static(path.join(__dirname, 'dashboard')));
 function setupWebSocket(server) {
   const wss = new WebSocketServer({ server });
   const clients = new Set();
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    // Validate auth token
+    const url = new URL(req.url, 'http://localhost');
+    const token = url.searchParams.get('token');
+    const ttl = (typeof TOKEN_TTL_MS !== 'undefined') ? TOKEN_TTL_MS : 24 * 60 * 60 * 1000;
+    const isAuthenticated = !DASHBOARD_PASSWORD ||
+      (token && (
+        safeEqual(token, DASHBOARD_PASSWORD) ||
+        (() => {
+          const data = AUTH_TOKENS.get(token);
+          return data && (Date.now() - data.created <= ttl);
+        })()
+      ));
+    if (!isAuthenticated) {
+      ws.close(4401, 'Unauthorized');
+      return;
+    }
     clients.add(ws);
     ws.send(JSON.stringify({ type: 'stats', data: requestStats }));
     ws.send(JSON.stringify({ type: 'health', data: [...healthChecks.values()] }));
@@ -1072,6 +1221,7 @@ function setupWebSocket(server) {
     const data = JSON.stringify({ type: 'health', data: [...healthChecks.values()] });
     clients.forEach(ws => { try { ws.send(data); } catch (e) { } });
   }, 10000);
+  return wss;
 }
 
 // ── Service Discovery ─────────────────────────────────────────────────────────
@@ -1131,11 +1281,10 @@ app.post('/api/notifications/test', asyncHandler(async (req, res) => {
 }));
 
 // ── Health check with notification ───────────────────────────────────────────
-const net2 = require('net');
 async function pingPort(port) {
   return new Promise((resolve) => {
     const start = Date.now();
-    const socket = new net2.Socket();
+    const socket = new net.Socket();
     socket.setTimeout(2000);
     socket.connect(port, '127.0.0.1', () => {
       const latency = Date.now() - start;
@@ -1159,47 +1308,49 @@ app.get('/api/health-status', asyncHandler(async (req, res) => {
   res.json({ services: results, checked_at: new Date().toISOString() });
 }));
 
-function startAppProcess(name, appCfg, backoff = 1000) {
-  if (APP_PROCESSES.has(name)) return;
-  let command = appCfg.command || appCfg.script || 'npm start';
-  const cwd = appCfg.cwd || path.join(process.env.HOME, 'apps', name);
-  const child = exec(command, { cwd, env: { ...process.env, ...appCfg.env } });
-  APP_PROCESSES.set(name, { pid: child.pid, started_at: new Date().toISOString(), command });
-  console.log(`[auto-start] Started ${name} (PID: ${child.pid})`);
 
-  const policy = appCfg.restartPolicy || 'never';
-  child.on('exit', (code) => {
-    APP_PROCESSES.delete(name);
-    const shouldRestart = policy === 'always' || (policy === 'on-failure' && code !== 0);
-    if (shouldRestart) {
-      const nextBackoff = Math.min(backoff * 2, 30000);
-      console.log(`[watchdog] ${name} exited (code ${code}), restarting in ${backoff}ms`);
-      setTimeout(() => {
-        try {
-          const yaml = require('js-yaml');
-          const data = fs.existsSync(APPS_YAML) ? yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) : { apps: {} };
-          startAppProcess(name, data.apps?.[name] || appCfg, nextBackoff);
-        } catch (e) {
-          startAppProcess(name, appCfg, nextBackoff);
-        }
-      }, backoff);
+const LOG_FILE = path.join(CONFIG_DIR, 'access.log');
+
+function rotateLog(logPath) {
+  for (let i = 4; i >= 1; i--) {
+    const from = `${logPath}.${i}`;
+    const to = `${logPath}.${i + 1}`;
+    if (fs.existsSync(from)) fs.renameSync(from, to);
+  }
+  if (fs.existsSync(logPath)) fs.renameSync(logPath, `${logPath}.1`);
+}
+
+let _logBusy = false;
+
+function writeLog(line) {
+  if (_logBusy) return;
+  _logBusy = true;
+  try {
+    if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > 10 * 1024 * 1024) {
+      rotateLog(LOG_FILE);
     }
-  });
+    fs.appendFileSync(LOG_FILE, `${new Date().toISOString()} ${line}\n`);
+  } catch (_) {}
+  finally { _logBusy = false; }
 }
 
 function startServer(port = 7070) {
   return new Promise((resolve) => {
     const server = http.createServer(app);
-    setupWebSocket(server);
+    const wss = setupWebSocket(server);
     initializeDefaultPages();
     // Auto-start apps with autoStart: true
     if (fs.existsSync(APPS_YAML)) {
       try {
-        const yaml = require('js-yaml');
         const data = yaml.load(fs.readFileSync(APPS_YAML, 'utf8')) || { apps: {} };
-        Object.entries(data.apps || {}).forEach(([name, appCfg]) => {
-          if (appCfg.autoStart) {
-            startAppProcess(name, appCfg);
+        Object.entries(data.apps || {}).forEach(([name, rawCfg]) => {
+          try {
+            const appCfg = sanitizeAppConfig(rawCfg);
+            if (appCfg.autoStart) {
+              startAppProcess(name, appCfg);
+            }
+          } catch (e) {
+            console.warn(`[startup] Skipping app "${name}" — invalid config: ${e.message}`);
           }
         });
       } catch (e) {
@@ -1210,12 +1361,31 @@ function startServer(port = 7070) {
       console.log(`Dashboard: http://localhost:${port}`);
       console.log(`WebSocket: ws://localhost:${port}`);
       if (DASHBOARD_PASSWORD) console.log(`Auth: Password protected`);
+      writeLog('Server started on port ' + port);
       resolve(server);
+    });
+
+    process.on('SIGTERM', () => {
+      console.log('[SIGTERM] Graceful shutdown initiated');
+      writeLog('SIGTERM received');
+      wss.close();
+      server.close(() => {
+        console.log('[SIGTERM] HTTP server closed');
+        for (const [, proc] of APP_PROCESSES.entries()) {
+          try { process.kill(proc.pid, 'SIGTERM'); } catch (_) {}
+          setTimeout(() => { try { process.kill(proc.pid, 'SIGKILL'); } catch (_) {} }, 5000);
+        }
+        process.exit(0);
+      });
+      setTimeout(() => {
+        console.error('[SIGTERM] Forced exit after timeout');
+        process.exit(1);
+      }, 15000);
     });
   });
 }
 
-module.exports = { app, startServer };
+module.exports = { app, startServer, AUTH_TOKENS };
 
 if (require.main === module) {
   startServer(process.env.PORT || 7070);

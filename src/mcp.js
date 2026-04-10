@@ -1,4 +1,3 @@
-const { execSync, exec } = require('child_process');
 const net = require('net');
 const fs = require('fs');
 const path = require('path');
@@ -14,6 +13,17 @@ const { rollback, listRecentBackups } = require('./backup');
 const { readAudit, auditStats } = require('./audit');
 const { getNotifConfig, saveNotifConfig } = require('./notifier');
 const { listServices, enableService, disableService, testService } = require('./portless');
+const axios = require('axios');
+
+function getServerPort() {
+  try {
+    const { loadConfig } = require('./config');
+    const cfg = loadConfig();
+    return cfg.server?.port || process.env.CF_ROUTER_PORT || 7070;
+  } catch (_) {
+    return process.env.CF_ROUTER_PORT || 7070;
+  }
+}
 
 const TOOLS = [
   {
@@ -213,6 +223,12 @@ const TOOLS = [
   }
 ];
 
+function validateAppName(name) {
+  if (!name || typeof name !== 'string') throw new Error('App name is required');
+  if (name.length > 128) throw new Error('App name too long (max 128 chars)');
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error('App name must contain only letters, numbers, hyphens, and underscores');
+}
+
 async function handleToolCall(name, args) {
   switch (name) {
     case 'cloudflare_router_list_mappings': {
@@ -389,27 +405,39 @@ async function handleToolCall(name, args) {
     }
 
     case 'cf_router_app_start': {
-      const { name } = args;
-      if (!name) return { error: 'name is required', code: 'missing_param' };
-      if (!fs.existsSync(APPS_YAML)) return { error: 'No apps configured', code: 'not_found' };
-      const data = yaml.load(fs.readFileSync(APPS_YAML, 'utf8'));
-      if (!data?.apps?.[name]) return { error: `App not found: ${name}`, code: 'not_found' };
-      const appCfg = data.apps[name];
-      const command = appCfg.command || appCfg.script || 'npm start';
-      const cwd = appCfg.cwd || path.join(process.env.HOME, 'apps', name);
-      return new Promise((resolve) => {
-        const child = exec(command, { cwd, env: { ...process.env, ...appCfg.env } });
-        resolve({ success: true, pid: child.pid, name, command });
-      });
+      try {
+        const { name } = args;
+        if (!name) return { error: 'name is required', code: 'missing_param' };
+        validateAppName(name);
+        const port = getServerPort();
+        const response = await axios.post(
+          `http://localhost:${port}/api/apps/${encodeURIComponent(name)}/start`,
+          {},
+          { headers: { 'Authorization': `Bearer ${process.env.AUTH_TOKEN || ''}` }, timeout: 10000 }
+        );
+        return { success: true, ...response.data, name };
+      } catch (e) {
+        if (e.code === 'ECONNREFUSED') return { error: 'cf-router server not reachable', code: 'server_offline' };
+        if (e.response) return { error: e.response.data?.error || e.message, code: e.response.status };
+        return { error: e.message, code: 'start_failed' };
+      }
     }
 
     case 'cf_router_app_stop': {
       const { name } = args;
       if (!name) return { error: 'name is required', code: 'missing_param' };
       try {
-        execSync(`pkill -f "apps/${name}" 2>/dev/null || true`, { timeout: 3000 });
-        return { success: true, name };
+        validateAppName(name);
+        const port = getServerPort();
+        const response = await axios.post(
+          `http://localhost:${port}/api/apps/${encodeURIComponent(name)}/stop`,
+          {},
+          { headers: { 'Authorization': `Bearer ${process.env.AUTH_TOKEN || ''}` }, timeout: 10000 }
+        );
+        return { success: true, ...response.data, name };
       } catch (e) {
+        if (e.code === 'ECONNREFUSED') return { error: 'cf-router server not reachable', code: 'server_offline' };
+        if (e.response) return { error: e.response.data?.error || e.message, code: e.response.status };
         return { error: e.message, code: 'stop_failed' };
       }
     }
@@ -418,16 +446,17 @@ async function handleToolCall(name, args) {
       const { name } = args;
       if (!name) return { error: 'name is required', code: 'missing_param' };
       try {
-        execSync(`pkill -f "apps/${name}" 2>/dev/null || true`, { timeout: 3000 });
-        await new Promise(r => setTimeout(r, 500));
-        const data = yaml.load(fs.readFileSync(APPS_YAML, 'utf8'));
-        const appCfg = data?.apps?.[name];
-        if (!appCfg) return { error: `App not found: ${name}`, code: 'not_found' };
-        const command = appCfg.command || appCfg.script || 'npm start';
-        const cwd = appCfg.cwd || path.join(process.env.HOME, 'apps', name);
-        const child = exec(command, { cwd, env: { ...process.env, ...appCfg.env } });
-        return { success: true, pid: child.pid, name };
+        validateAppName(name);
+        const port = getServerPort();
+        const response = await axios.post(
+          `http://localhost:${port}/api/apps/${encodeURIComponent(name)}/restart`,
+          {},
+          { headers: { 'Authorization': `Bearer ${process.env.AUTH_TOKEN || ''}` }, timeout: 15000 }
+        );
+        return { success: true, ...response.data, name };
       } catch (e) {
+        if (e.code === 'ECONNREFUSED') return { error: 'cf-router server not reachable', code: 'server_offline' };
+        if (e.response) return { error: e.response.data?.error || e.message, code: e.response.status };
         return { error: e.message, code: 'restart_failed' };
       }
     }

@@ -15,6 +15,43 @@ const net = require('net');
 const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
 const PORTLESS_FILE = path.join(CONFIG_DIR, 'portless.yml');
 
+// ── File locking ──────────────────────────────────────────────────────────────
+
+function withWriteLock(fn) {
+  const lockPath = PORTLESS_FILE + '.lock';
+  const deadline = Date.now() + 5000;
+  while (true) {
+    try {
+      const fd = fs.openSync(lockPath, 'wx');
+      fs.closeSync(fd);
+      break; // lock acquired
+    } catch (e) {
+      if (Date.now() > deadline) throw new Error('Failed to acquire lock: timeout');
+      try {
+        if (fs.existsSync(lockPath) && Date.now() - fs.statSync(lockPath).mtimeMs > 5000) {
+          fs.unlinkSync(lockPath);
+        }
+      } catch (_) {}
+      const end = Date.now() + 20;
+      while (Date.now() < end) {}
+    }
+  }
+  const release = () => { try { fs.unlinkSync(lockPath); } catch (_) {} };
+  let result;
+  try {
+    result = fn();
+  } catch (e) {
+    release();
+    throw e;
+  }
+  // Support async callbacks: release lock after promise resolves
+  if (result && typeof result.then === 'function') {
+    return result.finally(release);
+  }
+  release();
+  return result;
+}
+
 const PORT_RANGE_START = 4000;
 const PORT_RANGE_END = 4999;
 
@@ -31,7 +68,9 @@ function loadPortless() {
 
 function savePortless(data) {
   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(PORTLESS_FILE, yaml.dump(data, { indent: 2 }));
+  withWriteLock(() => {
+    fs.writeFileSync(PORTLESS_FILE, yaml.dump(data, { indent: 2 }));
+  });
 }
 
 // ── Port allocation ───────────────────────────────────────────────────────────
@@ -64,30 +103,34 @@ async function findFreePort(usedPorts) {
  * @returns {number}             Allocated port
  */
 async function registerService(serviceName, opts = {}) {
-  const data = loadPortless();
-  if (!data.services) data.services = {};
+  return withWriteLock(async () => {
+    const data = loadPortless();
+    if (!data.services) data.services = {};
 
-  // Already registered — return existing port
-  if (data.services[serviceName]) {
-    return data.services[serviceName].port;
-  }
+    // Already registered — return existing port (idempotent)
+    if (data.services[serviceName]) {
+      return data.services[serviceName].port;
+    }
 
-  const usedPorts = Object.values(data.services).map(s => s.port);
-  const port = await findFreePort(usedPorts);
+    const usedPorts = Object.values(data.services).map(s => s.port);
+    const port = await findFreePort(usedPorts);
 
-  data.services[serviceName] = {
-    port,
-    subdomain: opts.subdomain || null,
-    description: opts.description || '',
-    account: opts.account || null,
-    zone: opts.zone || null,
-    enabled: true,
-    registered_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
+    data.services[serviceName] = {
+      port,
+      subdomain: opts.subdomain || null,
+      description: opts.description || '',
+      account: opts.account || null,
+      zone: opts.zone || null,
+      enabled: true,
+      registered_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
 
-  savePortless(data);
-  return port;
+    // Write directly to avoid re-entrant lock from savePortless
+    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.writeFileSync(PORTLESS_FILE, yaml.dump(data, { indent: 2 }));
+    return port;
+  });
 }
 
 /**
