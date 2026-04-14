@@ -120,3 +120,13 @@ apps:
     hostname: polyedge-api.aitradepulse.com
     port: 8100
     health_check: /api/health
+  1ai-engage:
+    mode: port
+    enabled: true
+    hostname: engage.aitradepulse.com
+    port: 8502
+  engage-mcp:
+    mode: port
+    enabled: true
+    hostname: engage-mcp.aitradepulse.com
+    port: 8766
