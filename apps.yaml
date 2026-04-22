@@ -130,3 +130,25 @@ apps:
     enabled: true
     hostname: engage-mcp.aitradepulse.com
     port: 8766
+  memory:
+    mode: port
+    enabled: true
+    hostname: memory.aitradepulse.com
+    port: 8081
+  polyedge-mirofish:
+    mode: port
+    enabled: true
+    hostname: polyedge-mirofish.aitradepulse.com
+    port: 3200
+    health_check: /
+  polyedge-mirofish-api:
+    mode: port
+    enabled: true
+    hostname: polyedge-mirofish-api.aitradepulse.com
+    port: 5001
+    health_check: /api/health
+  reach:
+    mode: port
+    enabled: true
+    hostname: reach.aitradepulse.com
+    port: 8502

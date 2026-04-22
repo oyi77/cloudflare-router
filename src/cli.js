@@ -1002,4 +1002,13 @@ program.command('app:test <name>').description('Run TCP+HTTP test on an app, pri
     }
   });
 
+program.command('watcher').description('Start file watcher for automatic config regeneration')
+  .option('--no-sync', 'Disable auto-sync to Cloudflare after regeneration')
+  .action((opts) => {
+    const watcher = require('./watcher');
+    console.log(chalk.green('✓ File watcher started'));
+    console.log(chalk.gray('Watching for changes in ~/.cloudflare-router/mappings/'));
+    console.log(chalk.gray('Press Ctrl+C to stop'));
+  });
+
 program.parse();

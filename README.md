@@ -80,6 +80,94 @@ cloudflare-router deploy
 cloudflare-router dashboard
 ```
 
+## Automatic Config Regeneration (File Watcher)
+
+The file watcher automatically regenerates tunnel configs when mapping files change, eliminating manual regeneration steps.
+
+### Usage
+
+Start the watcher:
+```bash
+# CLI command
+cloudflare-router watcher
+
+# Or npm script
+npm run watcher
+
+# Or with PM2 (recommended for production)
+npm run pm2:start
+```
+
+### How It Works
+
+1. Watches `~/.cloudflare-router/mappings/*.yml` for changes
+2. Detects file modifications (add, change, delete)
+3. Automatically runs `node src/cli.js generate` on change
+4. Logs all activity to `~/.cloudflare-router/logs/watcher.log`
+5. Debounces rapid changes (waits 1 second after last change)
+
+### Example Workflow
+
+```bash
+# Terminal 1: Start watcher
+cloudflare-router watcher
+
+# Terminal 2: Edit mapping file
+vim ~/.cloudflare-router/mappings/cf_myzone.yml
+
+# Watcher automatically detects change and regenerates config
+# Output: ✓ Config regenerated successfully
+```
+
+### PM2 Integration
+
+The watcher runs as a separate PM2 app alongside the main server:
+
+```bash
+# Start both server and watcher
+npm run pm2:start
+
+# View logs
+pm2 logs cf-router-watcher
+
+# Stop watcher
+pm2 stop cf-router-watcher
+
+# Restart watcher
+pm2 restart cf-router-watcher
+```
+
+### Optional: Auto-Sync to Cloudflare
+
+To enable automatic sync to Cloudflare after regeneration, uncomment the sync block in `src/watcher.js`:
+
+```javascript
+// Optional: Auto-sync to Cloudflare (uncomment to enable)
+try {
+  log('Syncing to Cloudflare...', 'info');
+  execSync('python3 sync-tunnel-config.py', {
+    cwd: ROUTER_DIR,
+    encoding: 'utf-8',
+    stdio: 'pipe'
+  });
+  log('Sync completed', 'success');
+} catch (syncErr) {
+  log(`Sync failed: ${syncErr.message}`, 'warn');
+}
+```
+
+### Logs
+
+Watcher activity is logged to `~/.cloudflare-router/logs/watcher.log`:
+
+```bash
+# View recent watcher logs
+tail -f ~/.cloudflare-router/logs/watcher.log
+
+# View via PM2
+pm2 logs cf-router-watcher
+```
+
 ## How It Works
 
 ```
@@ -128,6 +216,7 @@ cloudflare-router list           List all mappings
 cloudflare-router generate       Generate nginx + tunnel configs
 cloudflare-router deploy         Deploy DNS records to Cloudflare
 cloudflare-router status         Show system status
+cloudflare-router watcher        Start file watcher for auto-regeneration
 cloudflare-router dashboard      Start web dashboard
 
 # Short alias
