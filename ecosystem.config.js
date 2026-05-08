@@ -3,7 +3,7 @@ module.exports = {
         {
             name: 'cloudflare-router',
             script: 'src/server.js',
-            cwd: '/home/openclaw/.cloudflare-router/',
+            cwd: '/home/openclaw/projects/cf-router/',
             instances: 1,
             autorestart: true,
             watch: false,
@@ -23,7 +23,7 @@ module.exports = {
         {
             name: 'cf-router-watcher',
             script: 'src/watcher.js',
-            cwd: '/home/openclaw/.cloudflare-router/',
+            cwd: '/home/openclaw/projects/cf-router/',
             instances: 1,
             autorestart: true,
             watch: false,

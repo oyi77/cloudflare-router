@@ -1,7 +1,7 @@
 /**
  * audit.js — Append-only deployment audit log for CF-Router
  *
- * Log location: ~/.cloudflare-router/logs/audit.log (JSONL format)
+ * Log location: ~/projects/cf-router/logs/audit.log (JSONL format)
  */
 
 const fs = require('fs');

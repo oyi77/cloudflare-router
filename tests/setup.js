@@ -3,7 +3,7 @@ const fs = require('fs');
 
 process.env.HOME = path.join(__dirname, 'fixtures', 'home');
 
-const configDir = path.join(process.env.HOME, '.cloudflare-router');
+const configDir = path.join(process.env.HOME, 'projects/cf-router');
 if (!fs.existsSync(configDir)) {
   fs.mkdirSync(configDir, { recursive: true });
 }

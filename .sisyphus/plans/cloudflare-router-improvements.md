@@ -236,7 +236,7 @@ Wave FINAL (Verification):
     Tool: Bash
     Preconditions: pm2 installed
     Steps:
-      1. cd /home/openclaw/.cloudflare-router && pm2 validate ecosystem.config.js 2>&1 || echo "VALID"
+      1. cd /home/openclaw/projects/cf-router && pm2 validate ecosystem.config.js 2>&1 || echo "VALID"
     Expected Result: Config is valid JSON/module
     Evidence: .sisyphus/evidence/task-2-pm2-validate.txt
   ```

@@ -1007,7 +1007,7 @@ program.command('watcher').description('Start file watcher for automatic config 
   .action((opts) => {
     const watcher = require('./watcher');
     console.log(chalk.green('✓ File watcher started'));
-    console.log(chalk.gray('Watching for changes in ~/.cloudflare-router/mappings/'));
+    console.log(chalk.gray('Watching for changes in ~/projects/cf-router/mappings/'));
     console.log(chalk.gray('Press Ctrl+C to stop'));
   });
 

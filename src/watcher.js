@@ -16,8 +16,8 @@ const fs = require('fs');
 const chalk = require('chalk');
 
 // Configuration
-const MAPPINGS_DIR = path.join(process.env.HOME, '.cloudflare-router', 'mappings');
-const ROUTER_DIR = path.join(process.env.HOME, '.cloudflare-router');
+const MAPPINGS_DIR = path.join(process.env.HOME, 'projects/cf-router', 'mappings');
+const ROUTER_DIR = path.join(process.env.HOME, 'projects/cf-router');
 const LOG_FILE = path.join(ROUTER_DIR, 'logs', 'watcher.log');
 const DEBOUNCE_MS = 1000; // Wait 1s after last change before regenerating
 

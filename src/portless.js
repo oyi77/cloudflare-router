@@ -12,7 +12,7 @@ const path = require('path');
 const yaml = require('js-yaml');
 const net = require('net');
 
-const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
+const CONFIG_DIR = path.join(process.env.HOME, 'projects/cf-router');
 const PORTLESS_FILE = path.join(CONFIG_DIR, 'portless.yml');
 
 // ── File locking ──────────────────────────────────────────────────────────────

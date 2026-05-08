@@ -3,7 +3,7 @@ const path = require('path');
 const yaml = require('js-yaml');
 const lockfile = require('proper-lockfile');
 
-const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
+const CONFIG_DIR = path.join(process.env.HOME, 'projects/cf-router');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.yml');
 const MAPPINGS_DIR = path.join(CONFIG_DIR, 'mappings');
 

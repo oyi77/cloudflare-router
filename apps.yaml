@@ -35,7 +35,7 @@ apps:
     mode: port
     enabled: true
     hostname: adforge.aitradepulse.com
-    port: 3001
+    port: 5000
   cc:
     mode: port
     enabled: true
@@ -152,3 +152,21 @@ apps:
     enabled: true
     hostname: reach.aitradepulse.com
     port: 8502
+  reach-api:
+    mode: port
+    enabled: true
+    hostname: reach-api.aitradepulse.com
+    port: 8001
+
+  1proxy-api:
+    mode: port
+    enabled: true
+    hostname: 1proxy-api.aitradepulse.com
+    port: 8000
+    health_check: /health
+    cwd: /home/openclaw/projects/1proxy/1proxy-backend
+    command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+    autoStart: true
+    restartPolicy: always
+    env:
+      DATABASE_URL: "postgresql://postgres.pnnndgppwkrwvryltuek:G2Q7AIDJWFwWmUkz@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"

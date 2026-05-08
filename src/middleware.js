@@ -6,7 +6,7 @@ const ipWhitelist = new Set();
 const ipBlacklist = new Set();
 
 function loadIPLists() {
-  const configDir = path.join(process.env.HOME, '.cloudflare-router');
+  const configDir = path.join(process.env.HOME, 'projects/cf-router');
   const whitelistFile = path.join(configDir, 'ip-whitelist.txt');
   const blacklistFile = path.join(configDir, 'ip-blacklist.txt');
   
@@ -75,14 +75,14 @@ function rateLimitMiddleware(options = {}) {
 
 function addToWhitelist(ip) {
   ipWhitelist.add(ip);
-  const configDir = path.join(process.env.HOME, '.cloudflare-router');
+  const configDir = path.join(process.env.HOME, 'projects/cf-router');
   const whitelistFile = path.join(configDir, 'ip-whitelist.txt');
   fs.appendFileSync(whitelistFile, ip + '\n');
 }
 
 function addToBlacklist(ip) {
   ipBlacklist.add(ip);
-  const configDir = path.join(process.env.HOME, '.cloudflare-router');
+  const configDir = path.join(process.env.HOME, 'projects/cf-router');
   const blacklistFile = path.join(configDir, 'ip-blacklist.txt');
   fs.appendFileSync(blacklistFile, ip + '\n');
 }
@@ -98,7 +98,7 @@ function removeFromBlacklist(ip) {
 }
 
 function saveIPLists() {
-  const configDir = path.join(process.env.HOME, '.cloudflare-router');
+  const configDir = path.join(process.env.HOME, 'projects/cf-router');
   fs.writeFileSync(path.join(configDir, 'ip-whitelist.txt'), [...ipWhitelist].join('\n'));
   fs.writeFileSync(path.join(configDir, 'ip-blacklist.txt'), [...ipBlacklist].join('\n'));
 }

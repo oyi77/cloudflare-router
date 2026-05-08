@@ -8,7 +8,7 @@ services:
     ports:
       - "7070:7070"
     volumes:
-      - ~/.cloudflare-router:/root/.cloudflare-router
+      - ~/projects/cf-router:/root/.cloudflare-router
     environment:
       - NODE_ENV=production
       - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-123456}
@@ -25,8 +25,8 @@ services:
     ports:
       - "6969:6969"
     volumes:
-      - ~/.cloudflare-router/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ~/.cloudflare-router/nginx/sites:/etc/nginx/conf.d:ro
+      - ~/projects/cf-router/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ~/projects/cf-router/nginx/sites:/etc/nginx/conf.d:ro
     depends_on:
       - cloudflare-router
     healthcheck:

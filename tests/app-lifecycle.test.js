@@ -10,7 +10,7 @@ const fs = require('fs');
 const yaml = require('js-yaml');
 
 // setup.js sets process.env.HOME to tests/fixtures/home — loaded via jest setupFiles
-const CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router');
+const CONFIG_DIR = path.join(process.env.HOME, 'projects/cf-router');
 const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
 const PORTLESS_FILE = path.join(CONFIG_DIR, 'portless.yml');
 

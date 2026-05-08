@@ -10,7 +10,7 @@ const fs = require('fs');
 // portless.js reads CONFIG_DIR from process.env.HOME at module load time,
 // so we must clear require cache to pick up the new HOME between tests.
 
-const PORTLESS_FILE = path.join(process.env.HOME, '.cloudflare-router', 'portless.yml');
+const PORTLESS_FILE = path.join(process.env.HOME, 'projects/cf-router', 'portless.yml');
 const LOCK_FILE = PORTLESS_FILE + '.lock';
 
 function freshPortless() {

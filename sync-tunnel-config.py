@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Sync cf-router tunnel config to Cloudflare Zero Trust dashboard.
-Reads ~/.cloudflare-router/tunnel/config.yml and pushes to Cloudflare API.
+Reads ~/projects/cf-router/tunnel/config.yml and pushes to Cloudflare API.
 """
 
 import yaml
@@ -11,8 +11,8 @@ import sys
 from pathlib import Path
 
 # Load config
-CONFIG_FILE = Path.home() / '.cloudflare-router' / 'config.yml'
-TUNNEL_CONFIG = Path.home() / '.cloudflare-router' / 'tunnel' / 'config.yml'
+CONFIG_FILE = Path.home() / 'projects/cf-router' / 'config.yml'
+TUNNEL_CONFIG = Path.home() / 'projects/cf-router' / 'tunnel' / 'config.yml'
 
 with open(CONFIG_FILE) as f:
     config = yaml.safe_load(f)
