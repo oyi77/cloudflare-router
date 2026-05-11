@@ -120,6 +120,10 @@ apps:
     hostname: polyedge-api.aitradepulse.com
     port: 8100
     health_check: /api/health
+    cwd: /home/openclaw/projects/polyedge
+    command: /home/openclaw/projects/polyedge/venv/bin/python -m backend
+    autoStart: true
+    restartPolicy: always
   1ai-engage:
     mode: port
     enabled: true
