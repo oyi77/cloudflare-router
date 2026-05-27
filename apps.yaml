@@ -120,10 +120,10 @@ apps:
     hostname: polyedge-api.aitradepulse.com
     port: 8100
     health_check: /api/health
-    cwd: /home/openclaw/projects/polyedge
-    command: /home/openclaw/projects/polyedge/venv/bin/python -m backend
-    autoStart: true
-    restartPolicy: always
+    cwd: /home/openclaw/projects/1ai-poly-trader
+    command: /home/openclaw/projects/1ai-poly-trader/venv/bin/python -m backend
+    autoStart: false
+    restartPolicy: never
   1ai-engage:
     mode: port
     enabled: true
@@ -162,6 +162,26 @@ apps:
     hostname: reach-api.aitradepulse.com
     port: 8001
 
+  social:
+    mode: port
+    enabled: true
+    hostname: social.aitradepulse.com
+    port: 3110
+    health_check: /
+    cwd: /home/openclaw/projects/1ai-social/frontend
+    command: npx next dev -p 3110
+    autoStart: true
+    restartPolicy: always
+  social-api:
+    mode: port
+    enabled: true
+    hostname: social-api.aitradepulse.com
+    port: 8200
+    health_check: /health
+    cwd: /home/openclaw/projects/1ai-social
+    command: python3 api_server.py --host 0.0.0.0 --port 8200
+    autoStart: true
+    restartPolicy: always
   1proxy-api:
     mode: port
     enabled: true
