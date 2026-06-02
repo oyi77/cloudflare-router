@@ -120,10 +120,6 @@ apps:
     hostname: polyedge-api.aitradepulse.com
     port: 8100
     health_check: /api/health
-    cwd: /home/openclaw/projects/1ai-poly-trader
-    command: /home/openclaw/projects/1ai-poly-trader/venv/bin/python -m backend
-    autoStart: false
-    restartPolicy: never
   1ai-engage:
     mode: port
     enabled: true
@@ -144,7 +140,6 @@ apps:
     enabled: true
     hostname: polyedge-mirofish.aitradepulse.com
     port: 3200
-    health_check: /
   polyedge-mirofish-api:
     mode: port
     enabled: true
@@ -161,28 +156,21 @@ apps:
     enabled: true
     hostname: reach-api.aitradepulse.com
     port: 8001
-
-  # social - manually configured in nginx (multi-upstream: API + frontend)
-  # Do NOT add social here - it uses custom nginx config for unified routing
   social-api:
     mode: port
     enabled: false
     hostname: social-api.aitradepulse.com
     port: 8200
     health_check: /health
-    cwd: /home/openclaw/projects/1ai-social
-    command: python3 api_server.py --host 0.0.0.0 --port 8200
-    autoStart: true
-    restartPolicy: always
   1proxy-api:
     mode: port
     enabled: true
     hostname: 1proxy-api.aitradepulse.com
     port: 8000
     health_check: /health
-    cwd: /home/openclaw/projects/1proxy/1proxy-backend
-    command: python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-    autoStart: true
-    restartPolicy: always
-    env:
-      DATABASE_URL: "postgresql://postgres.pnnndgppwkrwvryltuek:G2Q7AIDJWFwWmUkz@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
+  social:
+    mode: port
+    enabled: true
+    hostname: social.aitradepulse.com
+    port: 6969
+    health_check: /health
