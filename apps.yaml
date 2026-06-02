@@ -162,19 +162,11 @@ apps:
     hostname: reach-api.aitradepulse.com
     port: 8001
 
-  social:
-    mode: port
-    enabled: true
-    hostname: social.aitradepulse.com
-    port: 3110
-    health_check: /
-    cwd: /home/openclaw/projects/1ai-social/frontend
-    command: npx next dev -p 3110
-    autoStart: true
-    restartPolicy: always
+  # social - manually configured in nginx (multi-upstream: API + frontend)
+  # Do NOT add social here - it uses custom nginx config for unified routing
   social-api:
     mode: port
-    enabled: true
+    enabled: false
     hostname: social-api.aitradepulse.com
     port: 8200
     health_check: /health
