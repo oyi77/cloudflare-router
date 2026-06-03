@@ -25,12 +25,6 @@ apps:
     enabled: false
     hostname: 1ai-dashboard.aitradepulse.com
     port: 4000
-  api:
-    mode: port
-    enabled: true
-    hostname: api.aitradepulse.com
-    port: 3002
-    proxy_host: 127.0.0.1
   adforge:
     mode: port
     enabled: true
@@ -174,3 +168,16 @@ apps:
     hostname: social.aitradepulse.com
     port: 6969
     health_check: /health
+    custom_nginx: true
+  tracking:
+    mode: port
+    enabled: true
+    hostname: tracking.aitradepulse.com
+    port: 3001
+    health_check: /health
+  phantomfx:
+    mode: port
+    enabled: true
+    hostname: phantomfx.aitradepulse.com
+    port: 8765
+    health_check: /status

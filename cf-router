@@ -148,6 +148,7 @@ class AppConfig:
         self.no_tls_verify = config.get("no_tls_verify", False)
         self.extra_headers = config.get("extra_headers", [])
         self.proxy_host = config.get("proxy_host", None)
+        self.custom_nginx = config.get("custom_nginx", False)
 
     def get_target(self) -> str:
         if self.mode == "socket":
@@ -357,6 +358,10 @@ def generate_nginx_config(apps: Dict[str, AppConfig]) -> None:
         if not app.enabled:
             continue
 
+        if app.custom_nginx:
+            config_parts.append((app.hostname, None))
+            continue
+
         if app.mode == "port":
             target = f"http://{app.host}:{app.port}"
         elif app.mode == "socket":
@@ -421,8 +426,9 @@ def generate_nginx_config(apps: Dict[str, AppConfig]) -> None:
     for hostname, config in config_parts:
         safe_name = hostname.replace(".", "_")
         config_file = NGINX_SITES_DIR / f"cf_{safe_name}.conf"
-        with open(config_file, "w") as f:
-            f.write(config)
+        if config:  # None = custom_nginx, skip writing — preserve custom config
+            with open(config_file, "w") as f:
+                f.write(config)
 
     includes = "\n".join([
         f"    include {NGINX_SITES_DIR / f'cf_{hostname.replace('.', '_')}.conf'};"
