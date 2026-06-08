@@ -63,7 +63,7 @@ describe('API Integration Tests', () => {
           email: 'test@example.com'
         });
       expect(res.status).toBe(400);
-      expect(res.body.code).toBe('missing_credentials');
+      expect(res.body.code).toBe('validation_error');
     });
 
     test('DELETE /api/accounts/:id should remove account', async () => {

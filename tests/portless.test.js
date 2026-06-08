@@ -68,8 +68,8 @@ describe('portless — service registry', () => {
   // 5. enableService sets enabled: true (via updateService / direct check)
   test('enableService sets enabled to true', async () => {
     await portless.registerService('svc-f');
-    portless.disableService('svc-f');
-    portless.enableService('svc-f');
+    await portless.disableService('svc-f');
+    await portless.enableService('svc-f');
     // Re-fetch list to confirm persistence
     const svc = portless.listServices().find(s => s.name === 'svc-f');
     expect(svc.enabled).toBe(true);
@@ -78,19 +78,19 @@ describe('portless — service registry', () => {
   // 6. disableService sets enabled: false
   test('disableService sets enabled to false', async () => {
     await portless.registerService('svc-g');
-    portless.disableService('svc-g');
+    await portless.disableService('svc-g');
     const svc = portless.listServices().find(s => s.name === 'svc-g');
     expect(svc.enabled).toBe(false);
   });
 
   // 7. enableService with non-existent name throws
-  test('enableService with non-existent name throws', () => {
-    expect(() => portless.enableService('no-such-service')).toThrow();
+  test('enableService with non-existent name throws', async () => {
+    await expect(portless.enableService('no-such-service')).rejects.toThrow();
   });
 
   // 8. disableService with non-existent name throws
-  test('disableService with non-existent name throws', () => {
-    expect(() => portless.disableService('no-such-service')).toThrow();
+  test('disableService with non-existent name throws', async () => {
+    await expect(portless.disableService('no-such-service')).rejects.toThrow();
   });
 
   // 9. testService returns object with tcp property
@@ -112,7 +112,7 @@ describe('portless — service registry', () => {
   // 11. releaseService removes the service (listServices no longer includes it)
   test('releaseService removes the service from the registry', async () => {
     await portless.registerService('svc-j');
-    portless.releaseService('svc-j');
+    await portless.releaseService('svc-j');
     const services = portless.listServices();
     expect(services.find(s => s.name === 'svc-j')).toBeUndefined();
   });
