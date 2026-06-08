@@ -150,18 +150,52 @@ async function updateTunnelIngress(accountId, tunnelId, domain, mappings) {
   const client = getClientForAccount(accountId);
   const accountIdCF = await getAccountIdFromZone(accountId);
 
-   const ingress = mappings
-     .filter(m => m.enabled !== false)
-     .map(m => ({
-       hostname: m.subdomain ? `${m.subdomain}.${domain}` : domain,
-       service: `http://localhost:${NGINX_LISTEN_PORT}`
-     }));
+  // Gather ALL mappings from ALL zones that share this tunnel,
+  // so we don't overwrite other zones' ingress rules.
+  const config = loadConfig();
+  const account = config.accounts.find(a => a.id === accountId);
+  const { loadMappings: loadAllMappings } = require('./config');
 
-  // Add default 404
-  ingress.push({ service: "http_status:404" });
+  const ingress = [];
+  for (const zone of (account.zones || [])) {
+    if (zone.tunnel_id !== tunnelId) continue;
+    const { mappings: zoneMappings } = loadAllMappings(accountId, zone.zone_id);
+    for (const m of zoneMappings.filter(m => m.enabled !== false)) {
+      ingress.push({
+        hostname: m.subdomain ? `${m.subdomain}.${zone.domain}` : zone.domain,
+        service: `http://localhost:${NGINX_LISTEN_PORT}`
+      });
+    }
+  }
+
+  // Preserve any per-mapping custom service overrides (e.g. phantomfx → :8765)
+  // by checking apps.yaml for port differences
+  try {
+    const fs = require('fs');
+    const yaml = require('js-yaml');
+    const path = require('path');
+    const { CONFIG_DIR } = require('./constants');
+    const appsPath = path.join(CONFIG_DIR, 'apps.yaml');
+    if (fs.existsSync(appsPath)) {
+      const apps = yaml.load(fs.readFileSync(appsPath, 'utf8')).apps || {};
+      for (const rule of ingress) {
+        const appEntry = Object.values(apps).find(a => a.hostname === rule.hostname && a.port);
+        if (appEntry && appEntry.port !== NGINX_LISTEN_PORT) {
+          rule.service = `http://localhost:${appEntry.port}`;
+        }
+      }
+    }
+  } catch { /* apps.yaml enrichment is best-effort */ }
+
+  // Deduplicate by hostname
+  const seen = new Set();
+  const deduped = ingress.filter(r => { if (seen.has(r.hostname)) return false; seen.add(r.hostname); return true; });
+
+  // Default 404 catch-all must be last
+  deduped.push({ service: "http_status:404" });
 
   const response = await client.put(`/accounts/${accountIdCF}/cfd_tunnel/${tunnelId}/configurations`, {
-    config: { ingress }
+    config: { ingress: deduped }
   });
   return response.data.result;
 }

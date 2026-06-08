@@ -4,7 +4,7 @@ const { Command } = require('commander');
 const chalk = require('chalk');
 const { loadConfig, saveConfig, addAccount, removeAccount, addZoneToAccount, removeZoneFromAccount, addMapping, removeMapping, toggleMapping, getAllMappings, getConfigDir } = require('./config');
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
-const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords } = require('./cloudflare');
+const { verifyAccount, discoverZones, deployMappingsForZone, updateTunnelIngress, listDNSRecords } = require('./cloudflare');
 const { startServer } = require('./server');
 const { startMCPServer } = require('./mcp');
 const portless = require('./portless');
@@ -120,7 +120,7 @@ program.command('add').description('Add a subdomain mapping')
       console.log(chalk.blue('  Auto-deploying...'));
       generateAllNginxConfigs();
       console.log(chalk.green('  ✓ nginx configs generated'));
-      const { syncZoneCloudflare } = require('./cloudflare');
+      const syncedTunnels = new Set();
       for (const account of config.accounts || []) {
         for (const zone of account.zones || []) {
           const { loadMappings } = require('./config');
@@ -128,9 +128,12 @@ program.command('add').description('Add a subdomain mapping')
           const results = await deployMappingsForZone(account.id, zone.zone_id, zone.domain, zone.tunnel_id, zm);
           const created = results.filter(r => r.status === 'created').length;
           console.log(chalk.green(`  ✓ DNS deployed (${created} new records)`));
-          // Sync tunnel ingress so cloudflared picks it up immediately
-          await syncZoneCloudflare(account.id, zone.zone_id).catch(() => {});
-          console.log(chalk.green('  ✓ Tunnel ingress synced to Cloudflare'));
+          // Sync tunnel ingress once per tunnel to avoid overwriting other zones
+          if (zone.tunnel_id && !syncedTunnels.has(zone.tunnel_id)) {
+            syncedTunnels.add(zone.tunnel_id);
+            await updateTunnelIngress(account.id, zone.tunnel_id, zone.domain, zm).catch(() => {});
+            console.log(chalk.green('  ✓ Tunnel ingress synced to Cloudflare'));
+          }
           notify('deploy_success', { count: created });
         }
       }
@@ -170,9 +173,10 @@ program.command('generate').description('Generate nginx configs')
     });
   });
 
-program.command('deploy').description('Deploy DNS records')
+program.command('deploy').description('Deploy DNS records and sync tunnel ingress')
   .action(async () => {
     const config = loadConfig();
+    const syncedTunnels = new Set();
     for (const account of config.accounts || []) {
       for (const zone of account.zones || []) {
         const { loadMappings } = require('./config');
@@ -183,10 +187,19 @@ program.command('deploy').description('Deploy DNS records')
           const icon = r.status === 'created' ? chalk.green('✓') : r.status === 'exists' ? chalk.yellow('•') : chalk.red('✗');
           console.log(`  ${icon} ${r.subdomain}: ${r.status}`);
         });
+        // Sync tunnel ingress once per tunnel (not per zone) to avoid overwriting
+        if (zone.tunnel_id && !syncedTunnels.has(zone.tunnel_id)) {
+          syncedTunnels.add(zone.tunnel_id);
+          try {
+            await updateTunnelIngress(account.id, zone.tunnel_id, zone.domain, mappings);
+            console.log(chalk.green(`  ✓ Tunnel ingress synced for ${zone.tunnel_id}`));
+          } catch (e) {
+            console.log(chalk.yellow(`  ⚠ Tunnel ingress sync failed: ${e.message}`));
+          }
+        }
       }
     }
   });
-
 program.command('status').description('Show status')
   .option('--watch', 'Live monitor mode (refresh every N seconds)')
   .option('--interval <sec>', 'Refresh interval in seconds for --watch', '5')
