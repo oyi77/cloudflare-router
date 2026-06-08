@@ -437,12 +437,54 @@ curl http://localhost:7070/api/logs/stats -H "Authorization: Bearer 123456"
 
 ## Environment Variables
 
+See [`.env.example`](./.env.example) for the full template. Key variables:
+
 ```bash
-DASHBOARD_PASSWORD=123456        # Dashboard auth password
-AUTH_TOKEN=your-token            # API auth token
-WEBHOOK_URL=https://...          # Webhook for alerts
-CORS_ORIGIN=https://example.com  # CORS origin (default: all)
+DASHBOARD_PORT=7070                # Web UI + API port (default: 7070)
+NGINX_PORT=6969                    # Nginx listen port (default: 6969)
+DASHBOARD_HOST=0.0.0.0             # Bind address (default: 0.0.0.0)
+CF_ROUTER_HOME=~/projects/cf-router  # Config root (default: $HOME/projects/cf-router)
+
+DASHBOARD_PASSWORD=<strong>         # REQUIRED for auth
+AUTH_TOKEN=<32-byte-hex>            # REQUIRED for API bearer auth
+DASHBOARD_USERNAME=admin            # Login username (default: admin)
+
+WEBHOOK_URL=https://...            # Webhook for alerts
+CORS_ORIGIN=https://example.com    # CORS origin (default: *)
+BACKUP_RETENTION_DAYS=7            # Backup retention (default: 7)
+DEFAULT_LANGUAGE=en                # UI language (default: en)
 ```
+
+If neither `DASHBOARD_PASSWORD` nor `AUTH_TOKEN` is set, the server starts in
+**unauthenticated dev mode** (with a warning to stderr). This is the same
+behavior as before and is used by the test suite.
+
+## Validation
+
+All POST/PUT endpoints validate input with [Zod](https://zod.dev/) schemas
+defined in [`src/schemas.js`](./src/schemas.js). Invalid input returns
+HTTP 400 with structured details:
+
+```json
+{
+  "error": "Validation failed",
+  "code": "validation_error",
+  "details": [
+    { "path": ["port"], "message": "Port must be an integer" }
+  ]
+}
+```
+
+## Request Tracing
+
+Every request gets a unique `X-Request-ID` (provided by the client via header
+or generated server-side). The ID propagates through the access log, audit
+log, and error log for end-to-end tracing. Send a custom ID with:
+
+```bash
+curl -H 'X-Request-ID: my-trace-123' http://localhost:7070/api/status
+```
+The same ID will appear in the response header and in the log entry.
 
 ## Testing
 

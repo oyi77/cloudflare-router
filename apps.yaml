@@ -181,3 +181,9 @@ apps:
     hostname: phantomfx.aitradepulse.com
     port: 8765
     health_check: /status
+  hermes:
+    mode: port
+    enabled: true
+    hostname: hermes.aitradepulse.com
+    port: 9119
+    health_check: /health
