@@ -25,8 +25,12 @@
       <p style="color:var(--text3);margin-bottom:2rem;font-size:0.875rem;">Secure infrastructure management</p>
       <form onsubmit="login(event)">
         <div style="margin-bottom:1.25rem;text-align:left;">
-          <label>Administrator Password</label>
-          <input class="input" id="login-password" type="password" placeholder="••••••••" required autofocus>
+          <label>Username</label>
+          <input class="input" id="login-username" type="text" placeholder="openclaw" required autofocus>
+        </div>
+        <div style="margin-bottom:1.25rem;text-align:left;">
+          <label>Password</label>
+          <input class="input" id="login-password" type="password" placeholder="••••••••" required>
         </div>
         <button type="submit" class="btn btn-p" style="width:100%;padding:0.875rem;">Unlock Dashboard</button>
       </form>
@@ -805,7 +809,7 @@
         const res = await fetch(API + '/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: document.getElementById('login-password').value })
+          body: JSON.stringify({ username: document.getElementById('login-username').value, password: document.getElementById('login-password').value })
         }).then(r => r.json());
 
         if (res.success) {

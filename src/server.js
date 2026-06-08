@@ -7,19 +7,35 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const { WebSocketServer } = require('ws');
-const { execSync, exec } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const net = require('net');
 const crypto = require('crypto');
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const { loadConfig, saveConfig, addAccount, removeAccount, addZoneToAccount, removeZoneFromAccount, addMapping, removeMapping, toggleMapping, getAllMappings, CONFIG_DIR, MAPPINGS_DIR } = require('./config');
+const {
+  DASHBOARD_PORT, DASHBOARD_HOST, NGINX_LISTEN_PORT, NGINX_SITES_DIR,
+  HTTP_SHORT_TIMEOUT_MS, HTTP_MEDIUM_TIMEOUT_MS, HTTP_TIMEOUT_MS, HTTP_LONG_TIMEOUT_MS,
+  SOCKET_TIMEOUT_MS, SOCKET_SCAN_TIMEOUT_MS,
+  NGINX_RELOAD_TIMEOUT_MS, HEALTH_CHECK_INTERVAL_MS, BACKUP_DEBOUNCE_MS,
+  APP_RESTART_MAX_BACKOFF_MS, APP_RESTART_BASE_BACKOFF_MS,
+  DEFAULT_PORTS_TO_SCAN,
+  HTTP_OK, HTTP_CREATED, HTTP_BAD_REQUEST, HTTP_UNAUTHORIZED, HTTP_FORBIDDEN,
+  HTTP_NOT_FOUND, HTTP_TOO_MANY_REQUESTS, HTTP_INTERNAL_SERVER_ERROR,
+  SUBDOMAIN_REGEX, APP_NAME_REGEX, YAML_FILENAME_REGEX, JSON_FILENAME_REGEX,
+  CONF_FILENAME_REGEX, FQDN_REGEX,
+  PORT_MIN, PORT_MAX, MAX_PORT_SCAN_COUNT, SUBDOMAIN_MAX_LENGTH,
+  API_RATE_WINDOW_MS, API_RATE_LIMIT_MAX, DEBOUNCE_MS,
+  LOG_DIR
+} = require('./constants');
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
 const { verifyAccount, discoverZones, deployMappingsForZone, listDNSRecords, listTunnelsForAccount, syncZoneCloudflare } = require('./cloudflare');
-const { rateLimitMiddleware, addToWhitelist, addToBlacklist, removeFromWhitelist, removeFromBlacklist, getIPLists, getRateLimitStats } = require('./middleware');
+const { rateLimitMiddleware, addToWhitelist, addToBlacklist, removeFromWhitelist, removeFromBlacklist, getIPLists, getRateLimitStats, requestIdMiddleware, requestContextMiddleware } = require('./middleware');
 const { createBackup, createAutoBackup, restoreBackup, rollback, listBackups, listRecentBackups, runHealthCheck, getHealthHistory, startAutoBackup, getBackupConfig, saveBackupConfig } = require('./backup');
 const { getAvailableLanguages, translate, i18nMiddleware } = require('./i18n');
 const { requestLoggerMiddleware, getAccessLogs, getErrorLogs, clearLogs, getLogStats } = require('./logger');
 const { logAudit, readAudit, auditStats } = require('./audit');
+const schemas = require('./schemas');
 const { discoverPorts } = require('./discovery');
 const { listTemplates } = require('./templates');
 const { notify, trackServiceHealth, getNotifConfig, saveNotifConfig, maskNotifConfig } = require('./notifier');
@@ -56,14 +72,10 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '10mb' }));
+app.use(requestIdMiddleware);
+app.use(requestContextMiddleware);
 app.use(i18nMiddleware);
 app.use(requestLoggerMiddleware);
-
-app.use((req, res, next) => {
-  req.id = req.headers['x-request-id'] || uuidv4();
-  res.setHeader('X-Request-ID', req.id);
-  next();
-});
 
 function loadEnv() {
   const envPath = path.join(CONFIG_DIR, '.env');
@@ -76,8 +88,19 @@ function loadEnv() {
 }
 loadEnv();
 
-const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || '';
-const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
+const DASHBOARD_USERNAME = process.env.DASHBOARD_USERNAME || 'openclaw';
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD;
+const AUTH_TOKEN = process.env.AUTH_TOKEN;
+
+function validateRequiredEnv() {
+  const passwordSet = DASHBOARD_PASSWORD && DASHBOARD_PASSWORD.trim() !== '';
+  const tokenSet = AUTH_TOKEN && AUTH_TOKEN.trim() !== '';
+  const usernameSet = DASHBOARD_USERNAME && DASHBOARD_USERNAME.trim() !== '';
+  if (!passwordSet && !tokenSet && !usernameSet) {
+    console.warn('[WARN] No authentication configured. Server is running UNAUTHENTICATED.');
+    console.warn('[WARN] Set DASHBOARD_PASSWORD and AUTH_TOKEN env vars for production use.');
+  }
+}
 const WEBHOOK_URL = process.env.WEBHOOK_URL || '';
 
 const AUTH_TOKENS = new Map();
@@ -124,31 +147,31 @@ function sanitizeAppConfig(body) {
 }
 
 function authMiddleware(req, res, next) {
-  if (!DASHBOARD_PASSWORD && !AUTH_TOKEN) return next();
-  const token = req.headers['authorization']?.replace('Bearer ', '') || req.query?.token;
-  if (safeEqual(token, DASHBOARD_PASSWORD)) return next();
-  const tokenData = AUTH_TOKENS.get(token);
-  if (tokenData) {
-    if (Date.now() - tokenData.created > TOKEN_TTL_MS) {
-      AUTH_TOKENS.delete(token);
-      return res.status(401).json({ error: 'Token expired', code: 'token_expired' });
-    }
-    return next();
-  }
-  res.status(401).json({ error: 'Unauthorized', code: 'auth_required' });
-}
+   if (!DASHBOARD_PASSWORD && !AUTH_TOKEN) return next();
+   const token = req.headers['authorization']?.replace('Bearer ', '') || req.query?.token;
+   if (safeEqual(token, DASHBOARD_PASSWORD)) return next();
+   const tokenData = AUTH_TOKENS.get(token);
+   if (tokenData) {
+     if (Date.now() - tokenData.created > require('./constants').TOKEN_TTL_MS) {
+       AUTH_TOKENS.delete(token);
+       return res.status(HTTP_UNAUTHORIZED).json({ error: 'Token expired', code: 'token_expired' });
+     }
+     return next();
+   }
+   res.status(HTTP_UNAUTHORIZED).json({ error: 'Unauthorized', code: 'auth_required' });
+ }
 
 const handleValidationErrors = (req, res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({
-      error: 'Validation failed',
-      code: 'validation_error',
-      details: errors.array().map(e => ({ field: e.path, message: e.msg }))
-    });
-  }
-  next();
-};
+   const errors = validationResult(req);
+   if (!errors.isEmpty()) {
+     return res.status(HTTP_BAD_REQUEST).json({
+       error: 'Validation failed',
+       code: 'validation_error',
+       details: errors.array().map(e => ({ field: e.path, message: e.msg }))
+     });
+   }
+   next();
+ };
 
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
@@ -181,42 +204,44 @@ const apiRateLimit = rateLimit({
 app.use('/api', apiRateLimit);
 
 app.post('/api/auth/login', authRateLimit, (req, res) => {
-  const { password } = req.body;
-  const ip = req.headers['x-forwarded-for'] || req.ip || '-';
+  try {
+    const validated = schemas.AuthLoginSchema.parse(req.body);
+    const { username, password } = validated;
+    const ip = req.headers['x-forwarded-for'] || req.ip || '-';
 
-  if (!DASHBOARD_PASSWORD) {
-    console.log(`[AUTH] Login success (no password set) from ${ip}`);
-    return res.json({ success: true, token: '' });
-  }
-
-  if (!password) {
-    console.warn(`[AUTH] Login failed: Password missing from ${ip}`);
-    return res.status(400).json({ error: 'Password is required', code: 'password_missing' });
-  }
-
-  if (safeEqual(password, DASHBOARD_PASSWORD)) {
-    // Evict oldest if at capacity
-    if (AUTH_TOKENS.size >= MAX_TOKENS) {
-      let oldestKey = null, oldestTime = Infinity;
-      for (const [k, v] of AUTH_TOKENS) {
-        if (v.created < oldestTime) { oldestTime = v.created; oldestKey = k; }
-      }
-      if (oldestKey) AUTH_TOKENS.delete(oldestKey);
+    if (!DASHBOARD_PASSWORD) {
+      console.log(`[AUTH] Login success (no password set) from ${ip}`);
+      return res.json({ success: true, token: '' });
     }
-    const token = crypto.randomBytes(32).toString('hex');
-    AUTH_TOKENS.set(token, { created: Date.now() });
-    console.log(`[AUTH] Login success from ${ip}`);
-    return res.json({ success: true, token });
-  }
 
-  console.warn(`[AUTH] Login failed: Invalid password from ${ip}`);
-  res.status(401).json({ error: 'Invalid password', code: 'invalid_credentials' });
+    if (safeEqual(username, DASHBOARD_USERNAME) && safeEqual(password, DASHBOARD_PASSWORD)) {
+      if (AUTH_TOKENS.size >= MAX_TOKENS) {
+        let oldestKey = null, oldestTime = Infinity;
+        for (const [k, v] of AUTH_TOKENS) {
+          if (v.created < oldestTime) { oldestTime = v.created; oldestKey = k; }
+        }
+        if (oldestKey) AUTH_TOKENS.delete(oldestKey);
+      }
+      const token = crypto.randomBytes(32).toString('hex');
+      AUTH_TOKENS.set(token, { created: Date.now() });
+      console.log(`[AUTH] Login success from ${ip}`);
+      return res.json({ success: true, token });
+    }
+
+    console.warn(`[AUTH] Login failed: Invalid credentials from ${ip}`);
+    res.status(401).json({ error: 'Invalid credentials', code: 'invalid_credentials' });
+  } catch (err) {
+    if (err.name === 'ZodError') {
+      return res.status(400).json({ error: 'Validation failed', code: 'validation_error', details: err.issues });
+    }
+    throw err;
+  }
 });
 
 app.get('/api/auth/check', (req, res) => {
   res.json({
     auth_required: !!DASHBOARD_PASSWORD || !!AUTH_TOKEN,
-    setup_complete: !!DASHBOARD_PASSWORD,
+    setup_complete: !!(DASHBOARD_PASSWORD && DASHBOARD_USERNAME),
     version: require('../package.json').version
   });
 });
@@ -261,8 +286,8 @@ const validators = {
     create: [
       body('account_id').trim().isLength({ min: 1 }),
       body('zone_id').trim().isLength({ min: 1 }),
-      body('subdomain').trim().isLength({ min: 1, max: 63 }).matches(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/i),
-      body('port').isInt({ min: 1, max: 65535 }),
+      body('subdomain').trim().isLength({ min: 1, max: SUBDOMAIN_MAX_LENGTH }).matches(SUBDOMAIN_REGEX),
+       body('port').isInt({ min: PORT_MIN, max: PORT_MAX }),
     ],
     remove: [param('account').trim(), param('zone').trim(), param('subdomain').trim()],
     toggle: [body('enabled').isBoolean()],
@@ -299,13 +324,18 @@ app.get('/api/accounts', asyncHandler(async (req, res) => {
   res.json(safe);
 }));
 
-app.post('/api/accounts', validators.account.create, handleValidationErrors, asyncHandler(async (req, res) => {
-  const { name, email, api_key, api_token } = req.body;
-  if (!api_key && !api_token) {
-    throw new APIError('Either api_key or api_token required', 400, 'missing_credentials');
+app.post('/api/accounts', asyncHandler(async (req, res) => {
+  try {
+    const validated = schemas.AccountCreateSchema.parse(req.body);
+    const { name, email, api_key, api_token } = validated;
+    const accounts = addAccount(name, email, api_key || api_token);
+    res.status(201).json({ success: true, accounts });
+  } catch (err) {
+    if (err.name === 'ZodError') {
+      return res.status(400).json({ error: 'Validation failed', code: 'validation_error', details: err.issues });
+    }
+    throw err;
   }
-  const accounts = addAccount(name, email, api_key || api_token);
-  res.status(201).json({ success: true, accounts });
 }));
 
 app.delete('/api/accounts/:id', validators.account.id, handleValidationErrors, asyncHandler(async (req, res) => {
@@ -321,10 +351,18 @@ app.get('/api/accounts/:id/discover', validators.account.id, handleValidationErr
   res.json(await discoverZones(req.params.id));
 }));
 
-app.post('/api/accounts/:id/zones', validators.zone.create, handleValidationErrors, asyncHandler(async (req, res) => {
-  const { zone_id, domain, tunnel_id, tunnel_credentials } = req.body;
-  const zones = addZoneToAccount(req.params.id, zone_id, domain, tunnel_id, tunnel_credentials);
-  res.status(201).json({ success: true, zones });
+app.post('/api/accounts/:id/zones', asyncHandler(async (req, res) => {
+  try {
+    const validated = schemas.ZoneAddSchema.parse(req.body);
+    const { zone_id, domain, tunnel_id, tunnel_credentials } = validated;
+    const zones = addZoneToAccount(req.params.id, zone_id, domain, tunnel_id, tunnel_credentials);
+    res.status(201).json({ success: true, zones });
+  } catch (err) {
+    if (err.name === 'ZodError') {
+      return res.status(400).json({ error: 'Validation failed', code: 'validation_error', details: err.issues });
+    }
+    throw err;
+  }
 }));
 
 app.delete('/api/accounts/:id/zones/:zoneId', (req, res) => {
@@ -397,28 +435,33 @@ app.get('/api/mappings', validators.list, handleValidationErrors, asyncHandler(a
   res.json(paginate(mappings, page, limit));
 }));
 
-app.post('/api/mappings', validators.mapping.create, handleValidationErrors, asyncHandler(async (req, res) => {
-  const { account_id, zone_id, subdomain, port, description, template, nginx_extra } = req.body;
-  const mappings = addMapping(account_id, zone_id, subdomain, port, description || '', 'http', { template: template || 'default', nginx_extra });
-  logAudit('mapping_added', { subdomain, port, description, template, user: 'dashboard' });
-  notify('mapping_added', { subdomain, port, description });
-  // Auto-deploy if configured
-  const cfg = loadConfig();
-  if (cfg.server?.auto_deploy) {
-    generateAllNginxConfigs();
-    for (const account of cfg.accounts || []) {
-      for (const zone of account.zones || []) {
-        // Deploy DNS records
-        const { loadMappings: lm } = require('./config');
-        const { mappings: zm } = lm(account.id, zone.zone_id);
-        await deployMappingsForZone(account.id, zone.zone_id, zone.domain, zone.tunnel_id, zm).catch(() => {});
-        // Sync tunnel ingress to Cloudflare API (so cloudflared picks it up)
-        await syncZoneCloudflare(account.id, zone.zone_id).catch(() => {});
+app.post('/api/mappings', asyncHandler(async (req, res) => {
+  try {
+    const validated = schemas.MappingCreateSchema.parse(req.body);
+    const { account_id, zone_id, subdomain, port, description, template, nginx_extra } = validated;
+    const mappings = addMapping(account_id, zone_id, subdomain, port, description, 'http', { template, nginx_extra });
+    logAudit('mapping_added', { subdomain, port, description, template, user: 'dashboard' });
+    notify('mapping_added', { subdomain, port, description });
+    const cfg = loadConfig();
+    if (cfg.server?.auto_deploy) {
+      generateAllNginxConfigs();
+      for (const account of cfg.accounts || []) {
+        for (const zone of account.zones || []) {
+          const { loadMappings: lm } = require('./config');
+          const { mappings: zm } = lm(account.id, zone.zone_id);
+          await deployMappingsForZone(account.id, zone.zone_id, zone.domain, zone.tunnel_id, zm).catch(() => {});
+          await syncZoneCloudflare(account.id, zone.zone_id).catch(() => {});
+        }
       }
+      notify('deploy_success', {});
     }
-    notify('deploy_success', {});
+    res.status(201).json({ success: true, mappings });
+  } catch (err) {
+    if (err.name === 'ZodError') {
+      return res.status(400).json({ error: 'Validation failed', code: 'validation_error', details: err.issues });
+    }
+    throw err;
   }
-  res.status(201).json({ success: true, mappings });
 }));
 
 app.delete('/api/mappings/:account/:zone/:subdomain', validators.mapping.remove, handleValidationErrors, asyncHandler(async (req, res) => {
@@ -547,14 +590,30 @@ app.get('/api/ip/lists', (req, res) => {
   res.json(getIPLists());
 });
 
-app.post('/api/ip/whitelist', [body('ip').trim().isIP().withMessage('Valid IP address required')], handleValidationErrors, (req, res) => {
-  addToWhitelist(req.body.ip);
-  res.json({ success: true });
+app.post('/api/ip/whitelist', (req, res) => {
+  try {
+    const validated = schemas.IpWhitelistSchema.parse(req.body);
+    addToWhitelist(validated.ip);
+    res.json({ success: true });
+  } catch (err) {
+    if (err.name === 'ZodError') {
+      return res.status(400).json({ error: 'Validation failed', code: 'validation_error', details: err.issues });
+    }
+    throw err;
+  }
 });
 
-app.post('/api/ip/blacklist', [body('ip').trim().isIP().withMessage('Valid IP address required')], handleValidationErrors, (req, res) => {
-  addToBlacklist(req.body.ip);
-  res.json({ success: true });
+app.post('/api/ip/blacklist', (req, res) => {
+  try {
+    const validated = schemas.IpBlacklistSchema.parse(req.body);
+    addToBlacklist(validated.ip);
+    res.json({ success: true });
+  } catch (err) {
+    if (err.name === 'ZodError') {
+      return res.status(400).json({ error: 'Validation failed', code: 'validation_error', details: err.issues });
+    }
+    throw err;
+  }
 });
 
 app.delete('/api/ip/whitelist/:ip', (req, res) => {
@@ -609,12 +668,20 @@ app.get('/api/backup/config', (req, res) => {
 const ALLOWED_BACKUP_CONFIG_FIELDS = new Set(['enabled', 'interval', 'maxBackups', 'destination', 'compress', 'encrypt', 'healthUrls']);
 
 app.put('/api/backup/config', (req, res) => {
-  const safe = {};
-  for (const key of ALLOWED_BACKUP_CONFIG_FIELDS) {
-    if (key in req.body) safe[key] = req.body[key];
+  try {
+    const validated = schemas.BackupConfigSchema.parse(req.body);
+    const safe = {};
+    for (const key of ALLOWED_BACKUP_CONFIG_FIELDS) {
+      if (key in validated) safe[key] = validated[key];
+    }
+    saveBackupConfig(safe);
+    res.json({ success: true });
+  } catch (err) {
+    if (err.name === 'ZodError') {
+      return res.status(400).json({ error: 'Validation failed', code: 'validation_error', details: err.issues });
+    }
+    throw err;
   }
-  saveBackupConfig(safe);
-  res.json({ success: true });
 });
 
 app.post('/api/health-check/run', asyncHandler(async (req, res) => {
@@ -657,13 +724,13 @@ app.put('/api/nginx/configs/:file', (req, res) => {
 });
 
 app.post('/api/nginx/reload', (req, res) => {
-  try {
-    const nginxConf = path.join(CONFIG_DIR, 'nginx', 'nginx.conf');
-    execSync(`nginx -t -c ${nginxConf} 2>&1`, { encoding: 'utf8', timeout: 5000 });
-    execSync(`nginx -s reload -c ${nginxConf} 2>&1`, { encoding: 'utf8', timeout: 5000 });
-    res.json({ success: true, message: 'Nginx reloaded' });
-  } catch (error) { res.status(500).json({ error: error.message }); }
-});
+    try {
+      const nginxConf = path.join(CONFIG_DIR, 'nginx', 'nginx.conf');
+      execFileSync('nginx', ['-t', '-c', nginxConf], { encoding: 'utf8', timeout: NGINX_RELOAD_TIMEOUT_MS, stdio: 'pipe' });
+      execFileSync('nginx', ['-s', 'reload', '-c', nginxConf], { encoding: 'utf8', timeout: NGINX_RELOAD_TIMEOUT_MS, stdio: 'pipe' });
+     res.json({ success: true, message: 'Nginx reloaded' });
+   } catch (error) { res.status(500).json({ error: error.message }); }
+ });
 
 const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
 
@@ -680,13 +747,18 @@ app.put('/api/apps', (req, res) => {
     const sanitized = { apps: {} };
     if (req.body.apps && typeof req.body.apps === 'object') {
       for (const [name, config] of Object.entries(req.body.apps)) {
-        if (!/^[a-zA-Z0-9_-]+$/.test(name)) return res.status(400).json({ error: `Invalid app name: ${name}` });
+        if (!APP_NAME_REGEX.test(name)) return res.status(HTTP_BAD_REQUEST).json({ error: `Invalid app name: ${name}` });
         sanitized.apps[name] = sanitizeAppConfig(config);
       }
     }
     fs.writeFileSync(APPS_YAML, yaml.dump(sanitized, { lineWidth: -1 }));
     res.json({ success: true });
-  } catch (error) { res.status(400).json({ error: error.message }); }
+  } catch (error) {
+    if (error.name === 'ZodError') {
+      return res.status(400).json({ error: 'Validation failed', code: 'validation_error', details: error.issues });
+    }
+    res.status(HTTP_BAD_REQUEST).json({ error: error.message });
+  }
 });
 
 app.put('/api/apps/:name', (req, res) => {
@@ -731,30 +803,31 @@ app.get('/api/health-checks', (req, res) => {
 });
 
 function executeHealthCheck(id) {
-  const check = healthChecks.get(id);
-  if (!check) return;
-  const startTime = Date.now();
-  axios.get(check.url, { timeout: 5000, validateStatus: () => true }).then(response => {
-    const elapsed = Date.now() - startTime;
-    check.status = (response.status === 200) ? 'healthy' : 'unhealthy';
-    check.latency = elapsed;
-    check.lastCheck = new Date().toISOString();
-    if (check.status === 'unhealthy' && WEBHOOK_URL) {
-      sendWebhook(`Health check failed: ${check.name} (${check.url})`);
-    }
-  }).catch(() => {
-    const elapsed = Date.now() - startTime;
-    check.status = 'unhealthy';
-    check.latency = elapsed;
-    check.lastCheck = new Date().toISOString();
-    if (WEBHOOK_URL) {
-      sendWebhook(`Health check failed: ${check.name} (${check.url})`);
-    }
-  });
-  check.timeoutHandle = setTimeout(() => executeHealthCheck(id), check.interval);
-}
+    const check = healthChecks.get(id);
+    if (!check) return;
+    if (check.timeoutHandle) clearTimeout(check.timeoutHandle);
+    const startTime = Date.now();
+    axios.get(check.url, { timeout: HTTP_MEDIUM_TIMEOUT_MS, validateStatus: () => true }).then(response => {
+      const elapsed = Date.now() - startTime;
+      check.status = (response.status === HTTP_OK) ? 'healthy' : 'unhealthy';
+     check.latency = elapsed;
+     check.lastCheck = new Date().toISOString();
+     if (check.status === 'unhealthy' && WEBHOOK_URL) {
+       sendWebhook(`Health check failed: ${check.name} (${check.url})`);
+     }
+   }).catch(() => {
+     const elapsed = Date.now() - startTime;
+     check.status = 'unhealthy';
+     check.latency = elapsed;
+     check.lastCheck = new Date().toISOString();
+     if (WEBHOOK_URL) {
+       sendWebhook(`Health check failed: ${check.name} (${check.url})`);
+     }
+   });
+   check.timeoutHandle = setTimeout(() => executeHealthCheck(id), check.interval);
+ }
 
-const DOMAIN_RE = /^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const DOMAIN_RE = FQDN_REGEX;
 
 app.get('/api/ssl/all', asyncHandler(async (req, res) => {
   try {
@@ -777,30 +850,36 @@ app.get('/api/ssl/all', asyncHandler(async (req, res) => {
         results.push({ domain, error: 'Invalid domain format, skipped' });
         continue;
       }
-      try {
-        const result = execSync(`echo | openssl s_client -connect ${domain}:443 -servername ${domain} 2>/dev/null | openssl x509 -noout -dates 2>/dev/null`, { encoding: 'utf8', timeout: 5000 });
-        const notAfter = result.split('\n').find(l => l.startsWith('notAfter='))?.split('=')[1];
-        const days = notAfter ? Math.floor((new Date(notAfter) - new Date()) / 86400000) : null;
-        results.push({ domain, expires: notAfter, daysUntilExpiry: days, status: days < 30 ? 'warning' : 'ok' });
-      } catch (e) { results.push({ domain, error: 'Could not fetch SSL info' }); }
+       try {
+         const { stdout } = execFileSync('openssl', ['s_client', '-connect', `${domain}:443`, '-servername', domain, '-showcerts'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], input: '\n' });
+         const certMatch = stdout.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/);
+         if (!certMatch) throw new Error('No certificate found');
+         const result = execFileSync('openssl', ['x509', '-noout', '-dates'], { encoding: 'utf8', timeout: 5000, input: certMatch[0] });
+         const notAfter = result.split('\n').find(l => l.startsWith('notAfter='))?.split('=')[1];
+         const days = notAfter ? Math.floor((new Date(notAfter) - new Date()) / 86400000) : null;
+         results.push({ domain, expires: notAfter, daysUntilExpiry: days, status: days < 30 ? 'warning' : 'ok' });
+       } catch (e) { results.push({ domain, error: 'Could not fetch SSL info' }); }
     }
     res.json(results);
   } catch (error) { res.status(500).json({ error: error.message }); }
 }));
 
 app.get('/api/ssl/:domain', asyncHandler(async (req, res) => {
-  try {
-    const domain = req.params.domain;
-    if (!DOMAIN_RE.test(domain)) return res.status(400).json({ error: 'Invalid domain' });
-    const result = execSync(`echo | openssl s_client -connect ${domain}:443 -servername ${domain} 2>/dev/null | openssl x509 -noout -dates -subject -issuer 2>/dev/null`, { encoding: 'utf8', timeout: 10000 });
-    const lines = result.split('\n').filter(Boolean);
-    const ssl = {};
-    lines.forEach(line => {
-      if (line.startsWith('notBefore=')) ssl.notBefore = line.split('=')[1];
-      if (line.startsWith('notAfter=')) ssl.notAfter = line.split('=')[1];
-      if (line.startsWith('subject=')) ssl.subject = line.split('=')[1];
-      if (line.startsWith('issuer=')) ssl.issuer = line.split('=')[1];
-    });
+   try {
+     const domain = req.params.domain;
+     if (!DOMAIN_RE.test(domain)) return res.status(400).json({ error: 'Invalid domain' });
+     const { stdout } = execFileSync('openssl', ['s_client', '-connect', `${domain}:443`, '-servername', domain, '-showcerts'], { encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'], input: '\n' });
+     const certMatch = stdout.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/);
+     if (!certMatch) throw new Error('No certificate found');
+     const result = execFileSync('openssl', ['x509', '-noout', '-dates', '-subject', '-issuer'], { encoding: 'utf8', timeout: 10000, input: certMatch[0] });
+     const lines = result.split('\n').filter(Boolean);
+     const ssl = {};
+     lines.forEach(line => {
+       if (line.startsWith('notBefore=')) ssl.notBefore = line.split('=')[1];
+       if (line.startsWith('notAfter=')) ssl.notAfter = line.split('=')[1];
+       if (line.startsWith('subject=')) ssl.subject = line.split('=')[1];
+       if (line.startsWith('issuer=')) ssl.issuer = line.split('=')[1];
+     });
     if (ssl.notAfter) {
       const expiry = new Date(ssl.notAfter);
       ssl.daysUntilExpiry = Math.floor((expiry - new Date()) / 86400000);
@@ -822,21 +901,26 @@ app.post('/api/tunnel/restart', (req, res) => {
         if (!/^[a-zA-Z0-9_.-]+\.yml$/.test(base)) return res.status(400).json({ error: 'Invalid config filename' });
       } catch (e) { return res.status(400).json({ error: 'Config file not found' }); }
     }
-    execSync(`pkill -f "cloudflared.*${path.basename(config)}" 2>/dev/null; sleep 1; nohup cloudflared tunnel --config ${config} run &`, { timeout: 5000 });
-    res.json({ success: true, message: 'Tunnel restarting...' });
+     const configBasename = path.basename(config);
+     execFileSync('pkill', ['-f', `cloudflared.*${configBasename}`], { timeout: 5000, stdio: 'ignore' });
+     execFileSync('sleep', ['1'], { timeout: 5000, stdio: 'ignore' });
+     execFileSync('nohup', ['cloudflared', 'tunnel', '--config', config, 'run'], { timeout: 5000, stdio: 'ignore', detached: true });
+     res.json({ success: true, message: 'Tunnel restarting...' });
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 app.post('/api/tunnel/restart-all', (req, res) => {
-  try {
-    execSync('pkill -f cloudflared 2>/dev/null; sleep 2', { timeout: 5000 });
-    const configDir = path.join(process.env.HOME, '.cloudflared');
-    fs.readdirSync(configDir).filter(f => f.endsWith('.yml')).forEach(f => {
-      exec(`nohup cloudflared tunnel --config ${path.join(configDir, f)} run &`);
-    });
-    res.json({ success: true, message: 'All tunnels restarting...' });
-  } catch (error) { res.status(500).json({ error: error.message }); }
-});
+   try {
+     execFileSync('pkill', ['-f', 'cloudflared'], { timeout: 5000, stdio: 'ignore' });
+     execFileSync('sleep', ['2'], { timeout: 5000, stdio: 'ignore' });
+     const configDir = path.join(process.env.HOME, '.cloudflared');
+     fs.readdirSync(configDir).filter(f => f.endsWith('.yml')).forEach(f => {
+       const configPath = path.join(configDir, f);
+       execFileSync('nohup', ['cloudflared', 'tunnel', '--config', configPath, 'run'], { timeout: 5000, stdio: 'ignore', detached: true });
+     });
+     res.json({ success: true, message: 'All tunnels restarting...' });
+   } catch (error) { res.status(500).json({ error: error.message }); }
+ });
 
 app.get('/api/config/export', (req, res) => {
   try {
@@ -902,27 +986,27 @@ app.delete('/api/webhooks/:id', (req, res) => {
 });
 
 function sendWebhook(message, event = 'alert') {
-  if (!WEBHOOK_URL) return;
-  axios.post(WEBHOOK_URL, { text: message, event }, { timeout: 5000 }).catch(() => {});
-}
+   if (!WEBHOOK_URL) return;
+   axios.post(WEBHOOK_URL, { text: message, event }, { timeout: HTTP_MEDIUM_TIMEOUT_MS }).catch(() => {});
+ }
 
 app.post('/api/scan-ports', (req, res) => {
-  const { ports } = req.body;
-  if (ports !== undefined) {
-    if (!Array.isArray(ports)) return res.status(400).json({ error: 'ports must be an array' });
-    if (ports.length > 100) return res.status(400).json({ error: 'ports array limited to 100 items' });
-    for (const p of ports) {
-      if (!Number.isInteger(p) || p < 1 || p > 65535) {
-        return res.status(400).json({ error: `Invalid port: ${p}. Must be integer in [1, 65535]` });
-      }
-    }
-  }
-  const portsToScan = ports || [80, 443, 3000, 3001, 3002, 3003, 5432, 6379, 6969, 7070, 8080, 8443];
-  const results = [];
-  let completed = 0;
-  portsToScan.forEach(port => {
-    const socket = new net.Socket();
-    socket.setTimeout(1000);
+   const { ports } = req.body;
+   if (ports !== undefined) {
+     if (!Array.isArray(ports)) return res.status(HTTP_BAD_REQUEST).json({ error: 'ports must be an array' });
+     if (ports.length > MAX_PORT_SCAN_COUNT) return res.status(HTTP_BAD_REQUEST).json({ error: `ports array limited to ${MAX_PORT_SCAN_COUNT} items` });
+     for (const p of ports) {
+       if (!Number.isInteger(p) || p < PORT_MIN || p > PORT_MAX) {
+         return res.status(HTTP_BAD_REQUEST).json({ error: `Invalid port: ${p}. Must be integer in [${PORT_MIN}, ${PORT_MAX}]` });
+       }
+     }
+   }
+   const portsToScan = ports || DEFAULT_PORTS_TO_SCAN;
+   const results = [];
+   let completed = 0;
+   portsToScan.forEach(port => {
+     const socket = new net.Socket();
+     socket.setTimeout(SOCKET_SCAN_TIMEOUT_MS);
     socket.on('connect', () => {
       socket.destroy();
       results.push({ port, status: 'open' });
@@ -1022,7 +1106,7 @@ app.patch('/api/portless/:name/toggle', [
 ], handleValidationErrors, asyncHandler(async (req, res) => {
   const { name } = req.params;
   const { enabled } = req.body;
-  const svc = enabled ? enableService(name) : disableService(name);
+  const svc = (await (enabled ? enableService(name) : disableService(name)));
   res.json({ success: true, enabled: svc.enabled });
 }));
 
@@ -1148,43 +1232,46 @@ app.put('/api/error-pages/:code', [
 }));
 
 app.get('/api/settings', (req, res) => {
-  const config = loadConfig();
-  res.json({
-    server: config.server || { port: 7070, host: '0.0.0.0' },
-    nginx: config.nginx || { listen_port: 6969 },
-    cloudflare: config.cloudflare || { auto_sync: false },
-    features: {
-      rate_limiting: true,
-      validation: true,
-      file_locking: true,
-    },
-  });
-});
+   const config = loadConfig();
+   res.json({
+     server: config.server || { port: DASHBOARD_PORT, host: DASHBOARD_HOST },
+     nginx: config.nginx || { listen_port: NGINX_LISTEN_PORT },
+     cloudflare: config.cloudflare || { auto_sync: false },
+     features: {
+       rate_limiting: true,
+       validation: true,
+       file_locking: true,
+     },
+   });
+ });
 
-app.put('/api/settings', [
-  body('server.port').optional().isInt({ min: 1024, max: 65535 }),
-  body('server.host').optional().isIP(),
-  body('nginx.listen_port').optional().isInt({ min: 1, max: 65535 }),
-  body('cloudflare.auto_sync').optional().isBoolean(),
-], handleValidationErrors, (req, res) => {
-  const config = loadConfig();
-  if (req.body.server) config.server = { ...config.server, ...req.body.server };
-  if (req.body.nginx) config.nginx = { ...config.nginx, ...req.body.nginx };
-  if (req.body.cloudflare) config.cloudflare = { ...config.cloudflare, ...req.body.cloudflare };
-  saveConfig(config);
-  res.json({ success: true });
+app.put('/api/settings', (req, res) => {
+  try {
+    const validated = schemas.SettingsUpdateSchema.parse(req.body);
+    const config = loadConfig();
+    if (validated.server) config.server = { ...config.server, ...validated.server };
+    if (validated.nginx) config.nginx = { ...config.nginx, ...validated.nginx };
+    if (validated.cloudflare) config.cloudflare = { ...config.cloudflare, ...validated.cloudflare };
+    saveConfig(config);
+    res.json({ success: true });
+  } catch (err) {
+    if (err.name === 'ZodError') {
+      return res.status(400).json({ error: 'Validation failed', code: 'validation_error', details: err.issues });
+    }
+    throw err;
+  }
 });
 
 app.use((err, req, res, next) => {
-  if (err instanceof APIError) {
-    return res.status(err.statusCode).json({ error: err.message, code: err.code });
-  }
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({ error: err.message, code: 'validation_error' });
-  }
-  console.error(`Error: ${err.message}`);
-  res.status(500).json({ error: 'Internal server error', code: 'internal_error' });
-});
+   if (err instanceof APIError) {
+     return res.status(err.statusCode).json({ error: err.message, code: err.code });
+   }
+   if (err.name === 'ValidationError') {
+     return res.status(HTTP_BAD_REQUEST).json({ error: err.message, code: 'validation_error' });
+   }
+   console.error(`Error: ${err.message}`);
+   res.status(HTTP_INTERNAL_SERVER_ERROR).json({ error: 'Internal server error', code: 'internal_error' });
+ });
 
 app.use('/', express.static(path.join(__dirname, 'dashboard')));
 
@@ -1265,14 +1352,21 @@ app.get('/api/notifications/config', (req, res) => {
 });
 
 app.put('/api/notifications/config', asyncHandler(async (req, res) => {
-  const current = getNotifConfig();
-  const updated = { ...current, ...req.body };
-  // Don't overwrite masked token
-  if (req.body?.telegram?.bot_token && req.body.telegram.bot_token.includes('***')) {
-    updated.telegram.bot_token = current.telegram?.bot_token || '';
+  try {
+    const validated = schemas.NotificationsConfigSchema.parse(req.body);
+    const current = getNotifConfig();
+    const updated = { ...current, ...validated };
+    if (validated?.telegram?.bot_token && validated.telegram.bot_token.includes('***')) {
+      updated.telegram.bot_token = current.telegram?.bot_token || '';
+    }
+    saveNotifConfig(updated);
+    res.json({ success: true, config: maskNotifConfig(updated) });
+  } catch (err) {
+    if (err.name === 'ZodError') {
+      return res.status(400).json({ error: 'Validation failed', code: 'validation_error', details: err.issues });
+    }
+    throw err;
   }
-  saveNotifConfig(updated);
-  res.json({ success: true, config: maskNotifConfig(updated) });
 }));
 
 app.post('/api/notifications/test', asyncHandler(async (req, res) => {
@@ -1334,7 +1428,8 @@ function writeLog(line) {
   finally { _logBusy = false; }
 }
 
-function startServer(port = 7070) {
+function startServer(port = DASHBOARD_PORT) {
+  validateRequiredEnv();
   return new Promise((resolve) => {
     const server = http.createServer(app);
     const wss = setupWebSocket(server);
@@ -1380,7 +1475,7 @@ function startServer(port = 7070) {
       setTimeout(() => {
         console.error('[SIGTERM] Forced exit after timeout');
         process.exit(1);
-      }, 15000);
+      }, SHUTDOWN_TIMEOUT_MS);
     });
   });
 }
@@ -1388,5 +1483,5 @@ function startServer(port = 7070) {
 module.exports = { app, startServer, AUTH_TOKENS };
 
 if (require.main === module) {
-  startServer(process.env.PORT || 7070);
-}
+   startServer(require('./constants').resolveEnvInt('PORT', DASHBOARD_PORT));
+ }

@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getConfigDir } = require('./config');
+const { getRequestId } = require('./middleware');
 
 function getAuditFile() {
   const logsDir = path.join(getConfigDir(), 'logs');
@@ -20,14 +21,17 @@ function getAuditFile() {
  * @param {object} data    - { subdomain?, port?, user?, before?, after?, results?, error? }
  */
 function logAudit(action, data = {}) {
+  const ts = new Date().toISOString();
+  const requestId = getRequestId() || 'system';
   const entry = {
-    ts: new Date().toISOString(),
+    ts,
+    requestId,
     action,
     user: data.user || 'system',
     ...data,
   };
-  delete entry.user; // re-add at front for readability
-  const line = JSON.stringify({ ts: entry.ts, action, user: data.user || 'system', ...data }) + '\n';
+  delete entry.user;
+  const line = JSON.stringify({ ts, requestId, action, user: data.user || 'system', ...data }) + '\n';
   try {
     fs.appendFileSync(getAuditFile(), line, 'utf8');
   } catch (e) {

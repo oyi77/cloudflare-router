@@ -13,6 +13,7 @@ const { discoverPorts, getUnmappedCandidates } = require('./discovery');
 const { listTemplates } = require('./templates');
 const { createAutoBackup, rollback, listRecentBackups } = require('./backup');
 const { notify } = require('./notifier');
+const { DASHBOARD_PORT, HTTP_SHORT_TIMEOUT_MS, HTTP_MEDIUM_TIMEOUT_MS, resolveEnvInt } = require('./constants');
 
 const program = new Command();
 program.name('cloudflare-router').description('Manage Cloudflare Tunnels, nginx, and DNS from one place').version('1.2.0');
@@ -195,9 +196,9 @@ program.command('status').description('Show status')
     const path = require('path');
 
     async function pingService(port, healthPath = '/cf-health') {
-      return new Promise((resolve) => {
-        const start = Date.now();
-        const req = http.get({ hostname: '127.0.0.1', port, path: healthPath, timeout: 2000 }, (res) => {
+       return new Promise((resolve) => {
+         const start = Date.now();
+         const req = http.get({ hostname: '127.0.0.1', port, path: healthPath, timeout: HTTP_SHORT_TIMEOUT_MS }, (res) => {
           res.resume();
           resolve({ up: res.statusCode < 500, latency: Date.now() - start, status: res.statusCode });
         });
@@ -274,8 +275,8 @@ program.command('status').description('Show status')
   });
 
 program.command('dashboard').description('Start web dashboard')
-  .option('-p, --port <port>', 'Port', '7070')
-  .action(async (opts) => { await startServer(parseInt(opts.port)); });
+   .option('-p, --port <port>', 'Port', String(DASHBOARD_PORT))
+   .action(async (opts) => { await startServer(parseInt(opts.port) || DASHBOARD_PORT); });
 
 program.command('mcp').description('Start MCP server for AI agent integration')
   .action(() => {
@@ -801,10 +802,10 @@ program.command('portless:test <name>').description('Run TCP+HTTP test on a port
 // ── App lifecycle commands ────────────────────────────────────────────────────
 
 function appApiRequest(method, path, body) {
-  return new Promise((resolve, reject) => {
-    const http = require('http');
-    const config = loadConfig();
-    const port = process.env.PORT || config.server?.port || 7070;
+   return new Promise((resolve, reject) => {
+     const http = require('http');
+     const config = loadConfig();
+     const port = resolveEnvInt('PORT', config.server?.port || DASHBOARD_PORT);
     const token = process.env.AUTH_TOKEN || process.env.DASHBOARD_PASSWORD || '';
     const data = body ? JSON.stringify(body) : null;
     const options = {
@@ -968,13 +969,13 @@ program.command('app:test <name>').description('Run TCP+HTTP test on an app, pri
       const net = require('net');
       const http = require('http');
 
-      // TCP test
-      const tcpOk = await new Promise((resolve) => {
-        const sock = net.createConnection({ host: '127.0.0.1', port: appPort });
-        sock.once('connect', () => { sock.destroy(); resolve(true); });
-        sock.once('error', () => resolve(false));
-        setTimeout(() => { sock.destroy(); resolve(false); }, 2000);
-      });
+       // TCP test
+       const tcpOk = await new Promise((resolve) => {
+         const sock = net.createConnection({ host: '127.0.0.1', port: appPort });
+         sock.once('connect', () => { sock.destroy(); resolve(true); });
+         sock.once('error', () => resolve(false));
+         setTimeout(() => { sock.destroy(); resolve(false); }, HTTP_SHORT_TIMEOUT_MS);
+       });
 
       // HTTP test
       let httpOk = false;
@@ -986,8 +987,8 @@ program.command('app:test <name>').description('Run TCP+HTTP test on an app, pri
           r.resume();
           resolve();
         });
-        req.on('error', () => resolve());
-        req.setTimeout(3000, () => { req.destroy(); resolve(); });
+         req.on('error', () => resolve());
+         req.setTimeout(HTTP_MEDIUM_TIMEOUT_MS, () => { req.destroy(); resolve(); });
       });
 
       console.log(chalk.bold(`\nTest results for app "${name}" (port ${appPort}):`));

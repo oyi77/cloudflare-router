@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { CONFIG_DIR } = require('./config');
+const { getRequestId } = require('./middleware');
 
 const LOG_DIR = path.join(CONFIG_DIR, 'logs');
 const ACCESS_LOG_FILE = path.join(LOG_DIR, 'access.log');
@@ -19,9 +20,11 @@ function formatLogEntry(req, res, duration) {
   const status = res.statusCode;
   const userAgent = req.headers['user-agent'] || '-';
   const contentLength = res.get('content-length') || 0;
+  const requestId = req.requestId || getRequestId() || '-';
 
   return JSON.stringify({
     timestamp,
+    requestId,
     ip,
     method,
     url,

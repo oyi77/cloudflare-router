@@ -3,6 +3,7 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const yaml = require('js-yaml');
 const { CONFIG_DIR } = require('./config');
+const { APP_RESTART_BASE_BACKOFF_MS, APP_RESTART_MAX_BACKOFF_MS } = require('./constants');
 
 const APP_PROCESSES = new Map();
 const RESTARTING = new Set();
@@ -19,20 +20,20 @@ function sanitizeWatchdogCfg(cfg) {
   return safe;
 }
 
-function startAppProcess(name, appCfg, backoff = 1000) {
-  if (APP_PROCESSES.has(name)) return;
-  let command = appCfg.command || appCfg.script || 'npm start';
-  const cwd = appCfg.cwd || path.join(process.env.HOME, 'apps', name);
-  const child = exec(command, { cwd, env: { ...process.env, ...appCfg.env } });
-  APP_PROCESSES.set(name, { pid: child.pid, started_at: new Date().toISOString(), command });
-  console.log(`[auto-start] Started ${name} (PID: ${child.pid})`);
+function startAppProcess(name, appCfg, backoff = APP_RESTART_BASE_BACKOFF_MS) {
+   if (APP_PROCESSES.has(name)) return;
+   let command = appCfg.command || appCfg.script || 'npm start';
+   const cwd = appCfg.cwd || path.join(process.env.HOME, 'apps', name);
+   const child = exec(command, { cwd, env: { ...process.env, ...appCfg.env } });
+   APP_PROCESSES.set(name, { pid: child.pid, started_at: new Date().toISOString(), command });
+   console.log(`[auto-start] Started ${name} (PID: ${child.pid})`);
 
-  const policy = appCfg.restartPolicy || 'never';
-  child.on('exit', (code) => {
-    APP_PROCESSES.delete(name);
-    const shouldRestart = policy === 'always' || (policy === 'on-failure' && code !== 0);
-    if (shouldRestart) {
-      const nextBackoff = Math.min(backoff * 2, 30000);
+   const policy = appCfg.restartPolicy || 'never';
+   child.on('exit', (code) => {
+     APP_PROCESSES.delete(name);
+     const shouldRestart = policy === 'always' || (policy === 'on-failure' && code !== 0);
+     if (shouldRestart) {
+       const nextBackoff = Math.min(backoff * 2, APP_RESTART_MAX_BACKOFF_MS);
       console.log(`[watchdog] ${name} exited (code ${code}), restarting in ${backoff}ms`);
       setTimeout(() => {
         try {

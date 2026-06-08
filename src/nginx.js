@@ -1,9 +1,10 @@
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { loadConfig, getConfigDir, getAllMappings } = require('./config');
 const { generateFromTemplate } = require('./templates');
 const { logAudit } = require('./audit');
+const { NGINX_RELOAD_TIMEOUT_MS, HTTP_MEDIUM_TIMEOUT_MS } = require('./constants');
 
 function generateNginxConfig(mapping, listenPort) {
   // Use template system if template is set; otherwise use default
@@ -54,20 +55,21 @@ function generateAllNginxConfigs() {
 }
 
 function reloadNginx() {
-  try {
-    execSync('sudo nginx -t', { stdio: 'pipe' });
-    execSync('sudo nginx -s reload', { stdio: 'pipe' });
-    return { success: true };
-  } catch (error) {
-    return { success: false, message: error.message };
+    try {
+      execFileSync('sudo', ['nginx', '-t'], { timeout: NGINX_RELOAD_TIMEOUT_MS, stdio: 'pipe' });
+      execFileSync('sudo', ['nginx', '-s', 'reload'], { timeout: NGINX_RELOAD_TIMEOUT_MS, stdio: 'pipe' });
+      return { success: true };
+    } catch (error) {
+      return { success: false, message: error.message };
+    }
   }
-}
 
-function getNginxStatus() {
-  try {
-    const output = execSync('ps aux | grep nginx | grep -v grep', { encoding: 'utf8' });
-    return { running: true, processes: output.trim().split('\n').length };
-  } catch { return { running: false, processes: 0 }; }
-}
+ function getNginxStatus() {
+    try {
+      const { stdout } = execFileSync('ps', ['aux'], { encoding: 'utf8', timeout: HTTP_MEDIUM_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] });
+     const nginxLines = stdout.split('\n').filter(line => line.includes('nginx') && !line.includes('grep'));
+     return { running: nginxLines.length > 0, processes: nginxLines.length };
+   } catch { return { running: false, processes: 0 }; }
+ }
 
 module.exports = { generateNginxConfig, generateAllNginxConfigs, reloadNginx, getNginxStatus };

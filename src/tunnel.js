@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { loadConfig, loadMappings, getConfigDir } = require('./config');
+const { HTTP_MEDIUM_TIMEOUT_MS } = require('./constants');
 
 function generateTunnelConfig() {
   const config = loadConfig();
@@ -38,24 +39,25 @@ function generateTunnelConfig() {
 }
 
 function getTunnelStatus() {
-  try {
-    const { execSync } = require('child_process');
-    const output = execSync('ps aux | grep cloudflared | grep -v grep', { encoding: 'utf8' });
-    return { running: true, processes: output.trim().split('\n').length };
-  } catch {
-    return { running: false, processes: 0 };
-  }
-}
+    try {
+      const { execFileSync } = require('child_process');
+      const { stdout } = execFileSync('ps', ['aux'], { encoding: 'utf8', timeout: HTTP_MEDIUM_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] });
+     const cloudflaredLines = stdout.split('\n').filter(line => line.includes('cloudflared') && !line.includes('grep'));
+     return { running: cloudflaredLines.length > 0, processes: cloudflaredLines.length };
+   } catch {
+     return { running: false, processes: 0 };
+   }
+ }
 
 function startTunnel(configPath) {
-  try {
-    const { execSync } = require('child_process');
-    execSync(`cloudflared tunnel --config ${configPath} run &`, { stdio: 'pipe' });
-    return { success: true, message: 'Tunnel started' };
-  } catch (error) {
-    return { success: false, message: error.message };
-  }
-}
+   try {
+     const { execFileSync } = require('child_process');
+     execFileSync('cloudflared', ['tunnel', '--config', configPath, 'run'], { timeout: 5000, stdio: 'ignore', detached: true });
+     return { success: true, message: 'Tunnel started' };
+   } catch (error) {
+     return { success: false, message: error.message };
+   }
+ }
 
 module.exports = {
   generateTunnelConfig,

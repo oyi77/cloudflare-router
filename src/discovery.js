@@ -1,12 +1,13 @@
 /**
- * discovery.js — Port scanner & service discovery for CF-Router
- *
- * Scans listening TCP ports on localhost, detects process names,
- * cross-references with existing CF-Router mappings.
- */
+  * discovery.js — Port scanner & service discovery for CF-Router
+  *
+  * Scans listening TCP ports on localhost, detects process names,
+  * cross-references with existing CF-Router mappings.
+  */
 
-const { execSync } = require('child_process');
-const { getAllMappings } = require('./config');
+ const { execFileSync } = require('child_process');
+ const { getAllMappings } = require('./config');
+ const { HTTP_LONG_TIMEOUT_MS } = require('./constants');
 
 /**
  * Get all listening TCP ports with process info.
@@ -14,19 +15,19 @@ const { getAllMappings } = require('./config');
  * @returns {Array<{port, address, pid, process}>}
  */
 function scanListeningPorts() {
-  let output = '';
-  try {
-    output = execSync('ss -tlnp 2>/dev/null', { encoding: 'utf8' });
-    return parseSsOutput(output);
-  } catch {
+    let output = '';
     try {
-      output = execSync('netstat -tlnp 2>/dev/null', { encoding: 'utf8' });
-      return parseNetstatOutput(output);
+      const { stdout } = execFileSync('ss', ['-tlnp'], { encoding: 'utf8', timeout: HTTP_LONG_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] });
+      return parseSsOutput(stdout);
     } catch {
-      return [];
+      try {
+        const { stdout } = execFileSync('netstat', ['-tlnp'], { encoding: 'utf8', timeout: HTTP_LONG_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] });
+        return parseNetstatOutput(stdout);
+      } catch {
+        return [];
+      }
     }
   }
-}
 
 function parseSsOutput(output) {
   const ports = [];

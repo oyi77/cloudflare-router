@@ -2,7 +2,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
-const CONFIG_DIR = path.join(process.env.HOME, 'projects/cf-router');
+const { CONFIG_DIR, DASHBOARD_PORT, HTTP_LONG_TIMEOUT_MS, HTTP_TIMEOUT_MS, APP_NAME_REGEX, resolveEnvInt } = require('./constants');
 const APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml');
 const { loadConfig, loadMappings, addMapping, removeMapping, toggleMapping, getAllMappings } = require('./config');
 const { generateAllNginxConfigs, getNginxStatus } = require('./nginx');
@@ -16,14 +16,14 @@ const { listServices, enableService, disableService, testService } = require('./
 const axios = require('axios');
 
 function getServerPort() {
-  try {
-    const { loadConfig } = require('./config');
-    const cfg = loadConfig();
-    return cfg.server?.port || process.env.CF_ROUTER_PORT || 7070;
-  } catch (_) {
-    return process.env.CF_ROUTER_PORT || 7070;
-  }
-}
+   try {
+     const { loadConfig } = require('./config');
+     const cfg = loadConfig();
+     return cfg.server?.port || resolveEnvInt('CF_ROUTER_PORT', DASHBOARD_PORT);
+   } catch (_) {
+     return resolveEnvInt('CF_ROUTER_PORT', DASHBOARD_PORT);
+   }
+ }
 
 const TOOLS = [
   {
@@ -224,10 +224,11 @@ const TOOLS = [
 ];
 
 function validateAppName(name) {
-  if (!name || typeof name !== 'string') throw new Error('App name is required');
-  if (name.length > 128) throw new Error('App name too long (max 128 chars)');
-  if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error('App name must contain only letters, numbers, hyphens, and underscores');
-}
+   const { APP_NAME_MAX_LENGTH } = require('./constants');
+   if (!name || typeof name !== 'string') throw new Error('App name is required');
+   if (name.length > APP_NAME_MAX_LENGTH) throw new Error(`App name too long (max ${APP_NAME_MAX_LENGTH} chars)`);
+   if (!APP_NAME_REGEX.test(name)) throw new Error('App name must contain only letters, numbers, hyphens, and underscores');
+ }
 
 async function handleToolCall(name, args) {
   switch (name) {
@@ -342,10 +343,10 @@ async function handleToolCall(name, args) {
       const mappings = getAllMappings();
       const seen = new Set();
       const unique = mappings.filter(m => { if (seen.has(m.port)) return false; seen.add(m.port); return true; });
-      const results = await Promise.all(unique.map(m => new Promise(resolve => {
-        const start = Date.now();
-        const socket = new net.Socket();
-        socket.setTimeout(2000);
+       const results = await Promise.all(unique.map(m => new Promise(resolve => {
+         const start = Date.now();
+         const socket = new net.Socket();
+         socket.setTimeout(HTTP_SHORT_TIMEOUT_MS);
         socket.connect(m.port, '127.0.0.1', () => { const lat = Date.now() - start; socket.destroy(); resolve({ subdomain: m.subdomain, port: m.port, up: true, latency: lat }); });
         socket.on('error', () => { socket.destroy(); resolve({ subdomain: m.subdomain, port: m.port, up: false, latency: null }); });
         socket.on('timeout', () => { socket.destroy(); resolve({ subdomain: m.subdomain, port: m.port, up: false, latency: null }); });
@@ -361,10 +362,10 @@ async function handleToolCall(name, args) {
       const tunnel = getTunnelStatus();
       const seen = new Set();
       const unique = mappings.filter(m => { if (seen.has(m.port)) return false; seen.add(m.port); return true; }).slice(0, 30);
-      const services = await Promise.all(unique.map(m => new Promise(resolve => {
-        const start = Date.now();
-        const socket = new net.Socket();
-        socket.setTimeout(1500);
+       const services = await Promise.all(unique.map(m => new Promise(resolve => {
+         const start = Date.now();
+         const socket = new net.Socket();
+         socket.setTimeout(require('./constants').SOCKET_TIMEOUT_MS);
         socket.connect(m.port, '127.0.0.1', () => { socket.destroy(); resolve({ subdomain: m.subdomain, port: m.port, domain: m.full_domain, up: true, latency: Date.now() - start }); });
         socket.on('error', () => { socket.destroy(); resolve({ subdomain: m.subdomain, port: m.port, domain: m.full_domain, up: false, latency: null }); });
         socket.on('timeout', () => { socket.destroy(); resolve({ subdomain: m.subdomain, port: m.port, domain: m.full_domain, up: false, latency: null }); });
@@ -410,11 +411,11 @@ async function handleToolCall(name, args) {
         if (!name) return { error: 'name is required', code: 'missing_param' };
         validateAppName(name);
         const port = getServerPort();
-        const response = await axios.post(
-          `http://localhost:${port}/api/apps/${encodeURIComponent(name)}/start`,
-          {},
-          { headers: { 'Authorization': `Bearer ${process.env.AUTH_TOKEN || ''}` }, timeout: 10000 }
-        );
+         const response = await axios.post(
+           `http://localhost:${port}/api/apps/${encodeURIComponent(name)}/start`,
+           {},
+           { headers: { 'Authorization': `Bearer ${process.env.AUTH_TOKEN || ''}` }, timeout: HTTP_LONG_TIMEOUT_MS }
+         );
         return { success: true, ...response.data, name };
       } catch (e) {
         if (e.code === 'ECONNREFUSED') return { error: 'cf-router server not reachable', code: 'server_offline' };
@@ -429,11 +430,11 @@ async function handleToolCall(name, args) {
       try {
         validateAppName(name);
         const port = getServerPort();
-        const response = await axios.post(
-          `http://localhost:${port}/api/apps/${encodeURIComponent(name)}/stop`,
-          {},
-          { headers: { 'Authorization': `Bearer ${process.env.AUTH_TOKEN || ''}` }, timeout: 10000 }
-        );
+         const response = await axios.post(
+           `http://localhost:${port}/api/apps/${encodeURIComponent(name)}/stop`,
+           {},
+           { headers: { 'Authorization': `Bearer ${process.env.AUTH_TOKEN || ''}` }, timeout: HTTP_LONG_TIMEOUT_MS }
+         );
         return { success: true, ...response.data, name };
       } catch (e) {
         if (e.code === 'ECONNREFUSED') return { error: 'cf-router server not reachable', code: 'server_offline' };
@@ -448,11 +449,11 @@ async function handleToolCall(name, args) {
       try {
         validateAppName(name);
         const port = getServerPort();
-        const response = await axios.post(
-          `http://localhost:${port}/api/apps/${encodeURIComponent(name)}/restart`,
-          {},
-          { headers: { 'Authorization': `Bearer ${process.env.AUTH_TOKEN || ''}` }, timeout: 15000 }
-        );
+         const response = await axios.post(
+           `http://localhost:${port}/api/apps/${encodeURIComponent(name)}/restart`,
+           {},
+           { headers: { 'Authorization': `Bearer ${process.env.AUTH_TOKEN || ''}` }, timeout: HTTP_TIMEOUT_MS }
+         );
         return { success: true, ...response.data, name };
       } catch (e) {
         if (e.code === 'ECONNREFUSED') return { error: 'cf-router server not reachable', code: 'server_offline' };

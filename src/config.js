@@ -2,12 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
 const lockfile = require('proper-lockfile');
+const { CONFIG_DIR, MAPPINGS_DIR, LOCK_STALE_MS, LOCK_UPDATE_INTERVAL_MS, NGINX_SITES_DIR } = require('./constants');
 
-const CONFIG_DIR = path.join(process.env.HOME, 'projects/cf-router');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.yml');
-const MAPPINGS_DIR = path.join(CONFIG_DIR, 'mappings');
 
-const LOCK_OPTIONS = { stale: 5000, updateInterval: 1000 };
+const LOCK_OPTIONS = { stale: LOCK_STALE_MS, updateInterval: LOCK_UPDATE_INTERVAL_MS };
 
 function ensureDir() {
   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -34,17 +33,17 @@ async function withLock(file, operation) {
 }
 
 function loadConfig() {
-  ensureDir();
-  if (!fs.existsSync(CONFIG_FILE)) {
-    return {
-      accounts: [],
-      nginx: { listen_port: 6969, config_dir: path.join(CONFIG_DIR, 'nginx', 'sites') },
-      server: { port: 7070, host: '0.0.0.0' },
-      cloudflare: { auto_sync: false }
-    };
-  }
-  return yaml.load(fs.readFileSync(CONFIG_FILE, 'utf8'));
-}
+   ensureDir();
+   if (!fs.existsSync(CONFIG_FILE)) {
+     return {
+       accounts: [],
+       nginx: { listen_port: 6969, config_dir: NGINX_SITES_DIR },
+       server: { port: 7070, host: '0.0.0.0' },
+       cloudflare: { auto_sync: false }
+     };
+   }
+   return yaml.load(fs.readFileSync(CONFIG_FILE, 'utf8'));
+ }
 
 function saveConfig(config) {
   ensureDir();

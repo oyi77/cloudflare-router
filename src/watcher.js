@@ -3,7 +3,7 @@
 /**
  * File watcher for cf-router mapping files
  * Automatically regenerates tunnel config when mapping files change
- * 
+ *
  * Usage:
  *   node src/watcher.js
  *   npm run watcher
@@ -14,12 +14,12 @@ const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const chalk = require('chalk');
+const { MAPPINGS_DIR: mappingsDirConst, DEBOUNCE_MS, LOG_DIR } = require('./constants');
 
 // Configuration
-const MAPPINGS_DIR = path.join(process.env.HOME, 'projects/cf-router', 'mappings');
-const ROUTER_DIR = path.join(process.env.HOME, 'projects/cf-router');
-const LOG_FILE = path.join(ROUTER_DIR, 'logs', 'watcher.log');
-const DEBOUNCE_MS = 1000; // Wait 1s after last change before regenerating
+const MAPPINGS_DIR = mappingsDirConst;
+const ROUTER_DIR = path.dirname(path.dirname(__filename));
+const LOG_FILE = path.join(LOG_DIR, 'watcher.log');
 
 // Ensure logs directory exists
 const logsDir = path.dirname(LOG_FILE);
@@ -56,12 +56,14 @@ function regenerateConfig() {
   try {
     log('Regenerating tunnel config...', 'info');
     
-    // Run generate command
-    const result = execSync('node src/cli.js generate', {
-      cwd: ROUTER_DIR,
-      encoding: 'utf-8',
-      stdio: 'pipe'
-    });
+     // Run generate command
+     const { stdout } = execFileSync('node', ['src/cli.js', 'generate'], {
+       cwd: ROUTER_DIR,
+       encoding: 'utf-8',
+       timeout: 30000,
+       stdio: ['ignore', 'pipe', 'pipe']
+     });
+     const result = stdout;
 
     log('Config regenerated successfully', 'success');
     log(`Output: ${result.trim()}`, 'info');

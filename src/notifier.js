@@ -8,6 +8,7 @@
 const https = require('https');
 const http = require('http');
 const { loadConfig, saveConfig } = require('./config');
+const { HTTP_LONG_TIMEOUT_MS } = require('./constants');
 
 // Track service state for up/down transitions
 const serviceStateCache = new Map(); // port -> 'up' | 'down'
@@ -114,35 +115,35 @@ async function sendTelegram(botToken, chatId, text) {
       });
     });
     req.on('error', reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error('Telegram request timeout')); });
+    req.setTimeout(HTTP_LONG_TIMEOUT_MS, () => { req.destroy(); reject(new Error('Telegram request timeout')); });
     req.write(body);
     req.end();
-  });
-}
+   });
+ }
 
-/**
- * Send webhook notification.
- */
-async function sendWebhook(webhookUrl, event, data) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ event, data, ts: new Date().toISOString(), source: 'cf-router' });
-    const url = new URL(webhookUrl);
-    const mod = url.protocol === 'https:' ? https : http;
+ /**
+  * Send webhook notification.
+  */
+ async function sendWebhook(webhookUrl, event, data) {
+   return new Promise((resolve, reject) => {
+     const body = JSON.stringify({ event, data, ts: new Date().toISOString(), source: 'cf-router' });
+     const url = new URL(webhookUrl);
+     const mod = url.protocol === 'https:' ? https : http;
 
-    const options = {
-      hostname: url.hostname,
-      port: url.port || (url.protocol === 'https:' ? 443 : 80),
-      path: url.pathname + url.search,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-    };
+     const options = {
+       hostname: url.hostname,
+       port: url.port || (url.protocol === 'https:' ? 443 : 80),
+       path: url.pathname + url.search,
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+     };
 
-    const req = mod.request(options, (res) => {
-      res.resume();
-      resolve({ status: res.statusCode });
-    });
-    req.on('error', reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error('Webhook timeout')); });
+     const req = mod.request(options, (res) => {
+       res.resume();
+       resolve({ status: res.statusCode });
+     });
+     req.on('error', reject);
+     req.setTimeout(HTTP_LONG_TIMEOUT_MS, () => { req.destroy(); reject(new Error('Webhook timeout')); });
     req.write(body);
     req.end();
   });

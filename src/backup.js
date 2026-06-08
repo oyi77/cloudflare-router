@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const { loadConfig, saveConfig, CONFIG_DIR, MAPPINGS_DIR } = require('./config');
+const { BACKUP_DIR, BACKUP_RETENTION_DAYS, YAML_FILENAME_REGEX, HEALTHCHECK_HISTORY_MAX } = require('./constants');
 
-const backupsDir = path.join(CONFIG_DIR, 'backups');
+const backupsDir = BACKUP_DIR;
 const healthHistory = [];
 
 function ensureBackupDir() {
@@ -40,10 +41,10 @@ function restoreBackup(backupFile) {
   
   if (backup.config) saveConfig(backup.config);
   
-  if (backup.mappings) {
-    if (!fs.existsSync(MAPPINGS_DIR)) fs.mkdirSync(MAPPINGS_DIR, { recursive: true });
-    Object.entries(backup.mappings).forEach(([filename, content]) => {
-      if (!/^[a-zA-Z0-9_.-]+\.yml$/.test(filename)) return; // skip unsafe
+   if (backup.mappings) {
+     if (!fs.existsSync(MAPPINGS_DIR)) fs.mkdirSync(MAPPINGS_DIR, { recursive: true });
+     Object.entries(backup.mappings).forEach(([filename, content]) => {
+       if (!YAML_FILENAME_REGEX.test(filename)) return; // skip unsafe
       const resolved = path.resolve(MAPPINGS_DIR, filename);
       if (!resolved.startsWith(path.resolve(MAPPINGS_DIR))) return;
       fs.writeFileSync(resolved, content);
@@ -69,24 +70,50 @@ function listBackups() {
     .sort((a, b) => new Date(b.created) - new Date(a.created));
 }
 
-function cleanupOldBackups(maxBackups = 30) {
-  const backups = listBackups();
-  if (backups.length > maxBackups) {
-    backups.slice(maxBackups).forEach(b => {
-      fs.unlinkSync(b.path);
-    });
+function cleanupOldBackups(backupDir = backupsDir, retentionDays = BACKUP_RETENTION_DAYS) {
+   const now = Date.now();
+   const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
+  let deletedCount = 0;
+
+  if (!fs.existsSync(backupDir)) return { deleted: 0, kept: 0 };
+
+  const backups = fs.readdirSync(backupDir).filter(f => 
+    f.endsWith('.json') || f.endsWith('.yaml')
+  );
+
+  backups.forEach(filename => {
+    const filePath = path.join(backupDir, filename);
+    try {
+      const stat = fs.statSync(filePath);
+      const age = now - stat.mtimeMs;
+
+      if (age > retentionMs) {
+        fs.unlinkSync(filePath);
+        deletedCount++;
+      }
+    } catch (error) {
+      console.error(`[Cleanup] Failed to process ${filename}:`, error.message);
+    }
+  });
+
+   const keptCount = backups.length - deletedCount;
+   if (deletedCount > 0) {
+     console.log(`[Cleanup] Deleted ${deletedCount} old backups (>${BACKUP_RETENTION_DAYS} days). Kept ${keptCount} recent backups.`);
   }
+
+  return { deleted: deletedCount, kept: keptCount };
 }
 
 async function runHealthCheck(urls) {
-  const axios = require('axios');
-  const results = [];
-  for (const { name, url } of urls) {
-    const startTime = Date.now();
-    try {
-      new URL(url); // validates URL format, throws on invalid
-      const response = await axios.get(url, {
-        timeout: 5000,
+   const axios = require('axios');
+   const { HTTP_MEDIUM_TIMEOUT_MS: timeout } = require('./constants');
+   const results = [];
+   for (const { name, url } of urls) {
+     const startTime = Date.now();
+     try {
+       new URL(url); // validates URL format, throws on invalid
+       const response = await axios.get(url, {
+         timeout,
         validateStatus: () => true,
         maxRedirects: 3,
       });
@@ -108,20 +135,20 @@ async function runHealthCheck(urls) {
     }
   }
 
-  healthHistory.push({
-    timestamp: new Date().toISOString(),
-    results
-  });
+   healthHistory.push({
+     timestamp: new Date().toISOString(),
+     results
+   });
 
-  if (healthHistory.length > 1440) healthHistory.shift();
+   if (healthHistory.length > HEALTHCHECK_HISTORY_MAX) healthHistory.shift();
 
   return results;
 }
 
 function getHealthHistory(hours = 24) {
-  const cutoff = new Date(Date.now() - hours * 3600000).toISOString();
-  return healthHistory.filter(h => h.timestamp > cutoff);
-}
+   const cutoff = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+   return healthHistory.filter(h => h.timestamp > cutoff);
+ }
 
 function getBackupConfig() {
   const configDir = CONFIG_DIR;

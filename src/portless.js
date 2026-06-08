@@ -11,49 +11,32 @@ const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
 const net = require('net');
+const lockfile = require('proper-lockfile');
+const { CONFIG_DIR, PORTLESS_RANGE_START, PORTLESS_RANGE_END, PORTLESS_LOCK_STALE_MS, LOCK_UPDATE_INTERVAL_MS, HTTP_MEDIUM_TIMEOUT_MS } = require('./constants');
 
-const CONFIG_DIR = path.join(process.env.HOME, 'projects/cf-router');
 const PORTLESS_FILE = path.join(CONFIG_DIR, 'portless.yml');
 
-// ── File locking ──────────────────────────────────────────────────────────────
-
-function withWriteLock(fn) {
-  const lockPath = PORTLESS_FILE + '.lock';
-  const deadline = Date.now() + 5000;
-  while (true) {
-    try {
-      const fd = fs.openSync(lockPath, 'wx');
-      fs.closeSync(fd);
-      break; // lock acquired
-    } catch (e) {
-      if (Date.now() > deadline) throw new Error('Failed to acquire lock: timeout');
-      try {
-        if (fs.existsSync(lockPath) && Date.now() - fs.statSync(lockPath).mtimeMs > 5000) {
-          fs.unlinkSync(lockPath);
-        }
-      } catch (_) {}
-      const end = Date.now() + 20;
-      while (Date.now() < end) {}
-    }
+function ensurePortlessFile() {
+  if (!fs.existsSync(PORTLESS_FILE)) {
+    fs.writeFileSync(PORTLESS_FILE, yaml.dump({ services: {} }));
   }
-  const release = () => { try { fs.unlinkSync(lockPath); } catch (_) {} };
-  let result;
-  try {
-    result = fn();
-  } catch (e) {
-    release();
-    throw e;
-  }
-  // Support async callbacks: release lock after promise resolves
-  if (result && typeof result.then === 'function') {
-    return result.finally(release);
-  }
-  release();
-  return result;
 }
 
-const PORT_RANGE_START = 4000;
-const PORT_RANGE_END = 4999;
+async function withWriteLock(operation) {
+   ensurePortlessFile();
+   let release;
+   try {
+     release = await lockfile.lock(PORTLESS_FILE, {
+       stale: PORTLESS_LOCK_STALE_MS,
+       updateInterval: LOCK_UPDATE_INTERVAL_MS,
+       retries: { retries: 5, minTimeout: 100, maxTimeout: 1000 }
+     });
+     const result = await Promise.resolve(operation());
+     return result;
+   } finally {
+     if (release) await release();
+   }
+ }
 
 // ── Storage ──────────────────────────────────────────────────────────────────
 
@@ -66,12 +49,12 @@ function loadPortless() {
   }
 }
 
-function savePortless(data) {
-  if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  withWriteLock(() => {
-    fs.writeFileSync(PORTLESS_FILE, yaml.dump(data, { indent: 2 }));
-  });
-}
+async function savePortless(data) {
+   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+   return await withWriteLock(() => {
+     fs.writeFileSync(PORTLESS_FILE, yaml.dump(data, { indent: 2 }));
+   });
+ }
 
 // ── Port allocation ───────────────────────────────────────────────────────────
 
@@ -85,11 +68,11 @@ function isPortFree(port) {
 }
 
 async function findFreePort(usedPorts) {
-  for (let p = PORT_RANGE_START; p <= PORT_RANGE_END; p++) {
+  for (let p = PORTLESS_RANGE_START; p <= PORTLESS_RANGE_END; p++) {
     if (usedPorts.includes(p)) continue;
     if (await isPortFree(p)) return p;
   }
-  throw new Error(`No free ports available in range ${PORT_RANGE_START}-${PORT_RANGE_END}`);
+  throw new Error(`No free ports available in range ${PORTLESS_RANGE_START}-${PORTLESS_RANGE_END}`);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -103,7 +86,7 @@ async function findFreePort(usedPorts) {
  * @returns {number}             Allocated port
  */
 async function registerService(serviceName, opts = {}) {
-  return withWriteLock(async () => {
+   return await withWriteLock(async () => {
     const data = loadPortless();
     if (!data.services) data.services = {};
 
@@ -148,16 +131,16 @@ function getPort(serviceName) {
  * Release a service's port registration.
  * @param {string} serviceName
  */
-function releaseService(serviceName) {
-  const data = loadPortless();
-  if (!data.services || !data.services[serviceName]) {
-    throw new Error(`Service not registered: ${serviceName}`);
-  }
-  const port = data.services[serviceName].port;
-  delete data.services[serviceName];
-  savePortless(data);
-  return port;
-}
+async function releaseService(serviceName) {
+   const data = loadPortless();
+   if (!data.services || !data.services[serviceName]) {
+     throw new Error(`Service not registered: ${serviceName}`);
+   }
+   const port = data.services[serviceName].port;
+   delete data.services[serviceName];
+   await savePortless(data);
+   return port;
+ }
 
 /**
  * List all registered services.
@@ -176,15 +159,15 @@ function listServices() {
  * @param {string} serviceName
  * @param {object} updates
  */
-function updateService(serviceName, updates) {
-  const data = loadPortless();
-  if (!data.services || !data.services[serviceName]) {
-    throw new Error(`Service not registered: ${serviceName}`);
-  }
-  Object.assign(data.services[serviceName], updates, { updated_at: new Date().toISOString() });
-  savePortless(data);
-  return data.services[serviceName];
-}
+async function updateService(serviceName, updates) {
+   const data = loadPortless();
+   if (!data.services || !data.services[serviceName]) {
+     throw new Error(`Service not registered: ${serviceName}`);
+   }
+   Object.assign(data.services[serviceName], updates, { updated_at: new Date().toISOString() });
+   await savePortless(data);
+   return data.services[serviceName];
+ }
 
 /**
  * Get the full portless registry as a flat env map.
@@ -205,27 +188,27 @@ function getEnvMap() {
  * Enable a registered service.
  * @param {string} serviceName
  */
-function enableService(serviceName) {
-  const data = loadPortless();
-  if (!data.services || !data.services[serviceName]) throw new Error(`Service not registered: ${serviceName}`);
-  data.services[serviceName].enabled = true;
-  data.services[serviceName].updated_at = new Date().toISOString();
-  savePortless(data);
-  return data.services[serviceName];
-}
+async function enableService(serviceName) {
+   const data = loadPortless();
+   if (!data.services || !data.services[serviceName]) throw new Error(`Service not registered: ${serviceName}`);
+   data.services[serviceName].enabled = true;
+   data.services[serviceName].updated_at = new Date().toISOString();
+   await savePortless(data);
+   return data.services[serviceName];
+ }
 
 /**
  * Disable a registered service.
  * @param {string} serviceName
  */
-function disableService(serviceName) {
-  const data = loadPortless();
-  if (!data.services || !data.services[serviceName]) throw new Error(`Service not registered: ${serviceName}`);
-  data.services[serviceName].enabled = false;
-  data.services[serviceName].updated_at = new Date().toISOString();
-  savePortless(data);
-  return data.services[serviceName];
-}
+async function disableService(serviceName) {
+   const data = loadPortless();
+   if (!data.services || !data.services[serviceName]) throw new Error(`Service not registered: ${serviceName}`);
+   data.services[serviceName].enabled = false;
+   data.services[serviceName].updated_at = new Date().toISOString();
+   await savePortless(data);
+   return data.services[serviceName];
+ }
 
 /**
  * TCP + HTTP health check for a registered service.
@@ -239,19 +222,19 @@ async function testService(serviceName) {
   const port = svc.port;
 
   // TCP check
-  const tcpOpen = await new Promise((resolve) => {
-    const socket = new net.Socket();
-    const timer = setTimeout(() => { socket.destroy(); resolve(false); }, 3000);
-    socket.connect(port, '127.0.0.1', () => { clearTimeout(timer); socket.destroy(); resolve(true); });
-    socket.on('error', () => { clearTimeout(timer); resolve(false); });
-  });
+   const tcpOpen = await new Promise((resolve) => {
+     const socket = new net.Socket();
+     const timer = setTimeout(() => { socket.destroy(); resolve(false); }, HTTP_MEDIUM_TIMEOUT_MS);
+     socket.connect(port, '127.0.0.1', () => { clearTimeout(timer); socket.destroy(); resolve(true); });
+     socket.on('error', () => { clearTimeout(timer); resolve(false); });
+   });
 
-  const result = { tcp: { open: tcpOpen, port } };
+   const result = { tcp: { open: tcpOpen, port } };
 
-  if (tcpOpen) {
-    const start = Date.now();
-    const httpResult = await new Promise((resolve) => {
-      const timer = setTimeout(() => resolve({ status: null, ok: false, latency: 5000 }), 5000);
+   if (tcpOpen) {
+     const start = Date.now();
+     const httpResult = await new Promise((resolve) => {
+       const timer = setTimeout(() => resolve({ status: null, ok: false, latency: HTTP_MEDIUM_TIMEOUT_MS }), HTTP_MEDIUM_TIMEOUT_MS);
       const req = require('http').get(`http://127.0.0.1:${port}/`, (res) => {
         clearTimeout(timer);
         resolve({ status: res.statusCode, ok: res.statusCode < 400, latency: Date.now() - start });
@@ -266,15 +249,15 @@ async function testService(serviceName) {
 }
 
 module.exports = {
-  registerService,
-  getPort,
-  releaseService,
-  listServices,
-  updateService,
-  getEnvMap,
-  enableService,
-  disableService,
-  testService,
-  PORT_RANGE_START,
-  PORT_RANGE_END,
-};
+   registerService,
+   getPort,
+   releaseService,
+   listServices,
+   updateService,
+   getEnvMap,
+   enableService,
+   disableService,
+   testService,
+   PORT_RANGE_START: PORTLESS_RANGE_START,
+   PORT_RANGE_END: PORTLESS_RANGE_END,
+ };

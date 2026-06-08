@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { loadConfig } = require('./config');
+const { NGINX_LISTEN_PORT } = require('./constants');
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 
@@ -149,12 +150,12 @@ async function updateTunnelIngress(accountId, tunnelId, domain, mappings) {
   const client = getClientForAccount(accountId);
   const accountIdCF = await getAccountIdFromZone(accountId);
 
-  const ingress = mappings
-    .filter(m => m.enabled !== false)
-    .map(m => ({
-      hostname: m.subdomain ? `${m.subdomain}.${domain}` : domain,
-      service: "http://localhost:6969"
-    }));
+   const ingress = mappings
+     .filter(m => m.enabled !== false)
+     .map(m => ({
+       hostname: m.subdomain ? `${m.subdomain}.${domain}` : domain,
+       service: `http://localhost:${NGINX_LISTEN_PORT}`
+     }));
 
   // Add default 404
   ingress.push({ service: "http_status:404" });
