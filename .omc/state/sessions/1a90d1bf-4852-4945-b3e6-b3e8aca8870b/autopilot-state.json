@@ -1,0 +1,10 @@
+{
+  "active": true,
+  "started_at": "2026-05-27T13:35:12.782Z",
+  "original_prompt": "/autopilot test all the absorbed functions is working well, and 100% complete",
+  "session_id": "1a90d1bf-4852-4945-b3e6-b3e8aca8870b",
+  "project_path": "/home/openclaw/projects/cf-router",
+  "reinforcement_count": 0,
+  "awaiting_confirmation": true,
+  "last_checked_at": "2026-05-27T13:35:12.783Z"
+}

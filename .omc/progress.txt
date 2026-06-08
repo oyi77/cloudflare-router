@@ -1,0 +1,34 @@
+# Ralph Progress — Service Control Implementation
+
+## Session Start: 2026-04-10
+## Spec: docs/superpowers/specs/2026-04-10-service-control-design.md
+
+### Stories Status
+- US-001: pending - portless.js enableService/disableService/testService
+- US-002: pending - API portless toggle + test endpoints
+- US-003: pending - API app restart + config endpoints
+- US-004: pending - Auto-start on boot + restart policy watchdog
+- US-005: pending - UI portless cards with toggle + test
+- US-006: pending - UI app lifecycle full control cards
+- US-007: pending - CLI app:* and portless:enable/disable/test
+- US-008: pending - MCP 11 new tools
+- US-009: pending - AI Skills docs/skills/
+
+### Key File Locations
+- src/portless.js — portless service registry
+- src/server.js — Express API (very large file, read in chunks)
+- src/cli.js — Commander CLI
+- src/mcp.js — MCP server tools
+- src/dashboard/index.html — UI (very large, read in chunks)
+- src/dashboard/styles.css — styles
+- apps.yaml — app config at CONFIG_DIR/apps.yaml
+- portless.yml — portless registry at CONFIG_DIR/portless.yml
+
+### Codebase Patterns
+- asyncHandler wraps all async routes: (fn) => (req, res, next) => Promise.resolve(fn(...)).catch(next)
+- APIError class: new APIError(message, statusCode, code)
+- authMiddleware applied to all /api routes after /auth/login and /auth/check
+- APP_PROCESSES = Map<name, ChildProcess> in server.js (in-memory process registry)
+- CONFIG_DIR = path.join(process.env.HOME, '.cloudflare-router')
+- APPS_YAML = path.join(CONFIG_DIR, 'apps.yaml')
+- execSync used for nginx/tunnel commands; exec for background tasks

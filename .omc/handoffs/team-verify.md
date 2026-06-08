@@ -1,0 +1,15 @@
+## Handoff: team-verify → complete
+- **Decided**: Phase 1 VERIFIED COMPLETE. 73/73 tests pass (serial). All security fixes implemented and confirmed by verifier.
+- **Evidence**:
+  - All 7 injection sinks fixed (1a-1g): exec/execSync grep shows only validated/trusted inputs remain
+  - sendWebhook → axios.post() ✓
+  - Health check → axios.get() ✓
+  - Auth token → crypto.randomBytes(32) ✓
+  - timingSafeEqual at lines 80 + 140 ✓
+  - sanitizeAppConfig on both PUT /api/apps endpoints ✓
+  - escapeHtml() on 25/35 Category A innerHTML sites ✓
+  - CLI portless:test reads result.tcp.open, result.http?.status ✓
+  - validateAppName() in cf_router_app_start/stop/restart ✓
+  - 31 new security unit tests added (tests/security.test.js) ✓
+- **Rejected**: Calling parallel failures (config.test.js, error-pages.test.js, api.test.js) regressions — confirmed pre-existing shared-fixture race condition, passes 73/73 in --runInBand
+- **Remaining**: Phase 2 (90 new tests, SIGTERM grace, portless file locking, log rotation) — separate team run. Phase 3 (app-manager extraction, MCP routing, net2 removal).

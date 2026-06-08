@@ -1,0 +1,536 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1780417869343,
+  "projectRoot": "/home/openclaw/projects/cf-router",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": ">=18.0.0",
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "express",
+        "version": "4.22.1",
+        "category": "backend"
+      },
+      {
+        "name": "jest",
+        "version": "29.7.0",
+        "category": "testing"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": "Node.js 18.0.0"
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "npm test",
+    "lintCommand": null,
+    "devCommand": "npm run dev",
+    "scripts": {
+      "start": "node src/server.js",
+      "dev": "node --watch src/server.js",
+      "cli": "node src/cli.js",
+      "mcp": "node src/cli.js mcp",
+      "watcher": "node src/watcher.js",
+      "watcher:dev": "node --watch src/watcher.js",
+      "test": "jest",
+      "test:watch": "jest --watch",
+      "test:coverage": "jest --coverage",
+      "pm2:start": "pm2 start ecosystem.config.js",
+      "pm2:stop": "pm2 stop cloudflare-router",
+      "pm2:restart": "pm2 restart cloudflare-router",
+      "pm2:logs": "pm2 logs cloudflare-router",
+      "pm2:monit": "pm2 monit",
+      "pm2:save": "pm2 save",
+      "pm2:startup": "pm2 startup",
+      "install-completions": "cp completions/cloudflare-router.bash /etc/bash_completion.d/ && cp completions/cloudflare-router.zsh /usr/share/zsh/site-functions/_cloudflare-router",
+      "postinstall": "echo 'Run npm run install-completions for shell autocompletion'"
+    }
+  },
+  "conventions": {
+    "namingStyle": "camelCase",
+    "importStyle": "CommonJS",
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "src",
+      "test",
+      "tests"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "__pycache__": {
+      "path": "__pycache__",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1780417869303,
+      "keyFiles": [
+        "cf-routercpython-314.pyc"
+      ]
+    },
+    "backups": {
+      "path": "backups",
+      "purpose": null,
+      "fileCount": 30,
+      "lastAccessed": 1780417869305,
+      "keyFiles": [
+        "apps_20260409_003307.yaml",
+        "apps_20260409_003319.yaml",
+        "apps_20260409_003336.yaml",
+        "apps_20260409_003427.yaml",
+        "apps_20260602_202940.yaml"
+      ]
+    },
+    "completions": {
+      "path": "completions",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1780417869320,
+      "keyFiles": [
+        "cloudflare-router.bash",
+        "cloudflare-router.zsh"
+      ]
+    },
+    "deployment": {
+      "path": "deployment",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1780417869325,
+      "keyFiles": [
+        "README.md"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 3,
+      "lastAccessed": 1780417869328,
+      "keyFiles": [
+        "ENHANCEMENT-PLAN.md",
+        "MIGRATION.md",
+        "SSH_SERVER_MANAGEMENT_DESIGN.md"
+      ]
+    },
+    "error-pages": {
+      "path": "error-pages",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1780417869329,
+      "keyFiles": [
+        "404.html",
+        "404.json",
+        "500.html",
+        "500.json",
+        "502.html"
+      ]
+    },
+    "logs": {
+      "path": "logs",
+      "purpose": null,
+      "fileCount": 9,
+      "lastAccessed": 1780417869329,
+      "keyFiles": [
+        "access.log",
+        "audit.log",
+        "error.log",
+        "paperclip.log",
+        "pm2-error.log"
+      ]
+    },
+    "mappings": {
+      "path": "mappings",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1780417869330,
+      "keyFiles": [
+        "1774046746453_e160bb3298781f0de25dddea5fd516a9.yml",
+        "cf_1774046746453_e160bb3298781f0de25dddea5fd516a9.yml",
+        "personal_test-zone.yml"
+      ]
+    },
+    "nginx": {
+      "path": "nginx",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1780417869330,
+      "keyFiles": [
+        "nginx.conf",
+        "nginx.conf.bak",
+        "nginx.conf.bak-1proxy-1777374598",
+        "sites-active.conf"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 19,
+      "lastAccessed": 1780417869331,
+      "keyFiles": [
+        "app-manager.js",
+        "audit.js",
+        "backup.js",
+        "cli.js",
+        "cloudflare.js"
+      ]
+    },
+    "state": {
+      "path": "state",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1780417869331,
+      "keyFiles": [
+        "cancel-signal-state.json"
+      ]
+    },
+    "test": {
+      "path": "test",
+      "purpose": "Test files",
+      "fileCount": 1,
+      "lastAccessed": 1780417869332,
+      "keyFiles": [
+        "e2e.js"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 14,
+      "lastAccessed": 1780417869333,
+      "keyFiles": [
+        "api.test.js",
+        "app-lifecycle.test.js",
+        "auth-flow.test.js",
+        "config.test.js",
+        "error-pages.test.js"
+      ]
+    },
+    "tunnel": {
+      "path": "tunnel",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1780417869333,
+      "keyFiles": [
+        "config.yml",
+        "config.yml.backup"
+      ]
+    },
+    "tests/fixtures": {
+      "path": "tests/fixtures",
+      "purpose": "Test fixtures",
+      "fileCount": 0,
+      "lastAccessed": 1780417869343,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "src/server.js",
+      "accessCount": 322,
+      "lastAccessed": 1780497683454,
+      "type": "file"
+    },
+    {
+      "path": "src/dashboard/index.html",
+      "accessCount": 70,
+      "lastAccessed": 1780497646830,
+      "type": "file"
+    },
+    {
+      "path": "src/mcp.js",
+      "accessCount": 48,
+      "lastAccessed": 1775817346492,
+      "type": "file"
+    },
+    {
+      "path": "src/portless.js",
+      "accessCount": 38,
+      "lastAccessed": 1775818282075,
+      "type": "file"
+    },
+    {
+      "path": "src/cli.js",
+      "accessCount": 26,
+      "lastAccessed": 1775817301083,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 23,
+      "lastAccessed": 1780497543611,
+      "type": "directory"
+    },
+    {
+      "path": "src",
+      "accessCount": 19,
+      "lastAccessed": 1780497543778,
+      "type": "directory"
+    },
+    {
+      "path": "src/app-manager.js",
+      "accessCount": 10,
+      "lastAccessed": 1775817268110,
+      "type": "file"
+    },
+    {
+      "path": "package.json",
+      "accessCount": 10,
+      "lastAccessed": 1775817296878,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 8,
+      "lastAccessed": 1775815849686,
+      "type": "file"
+    },
+    {
+      "path": "tunnel/config.yml",
+      "accessCount": 8,
+      "lastAccessed": 1780497130044,
+      "type": "file"
+    },
+    {
+      "path": "tests",
+      "accessCount": 7,
+      "lastAccessed": 1775816365328,
+      "type": "directory"
+    },
+    {
+      "path": "src/backup.js",
+      "accessCount": 7,
+      "lastAccessed": 1775817080257,
+      "type": "file"
+    },
+    {
+      "path": "sync-tunnel-config.py",
+      "accessCount": 7,
+      "lastAccessed": 1780497236623,
+      "type": "file"
+    },
+    {
+      "path": "apps.yaml",
+      "accessCount": 6,
+      "lastAccessed": 1780497122856,
+      "type": "file"
+    },
+    {
+      "path": "tests/api.test.js",
+      "accessCount": 5,
+      "lastAccessed": 1775815186568,
+      "type": "file"
+    },
+    {
+      "path": "tests/setup.js",
+      "accessCount": 5,
+      "lastAccessed": 1775816622061,
+      "type": "file"
+    },
+    {
+      "path": "tests/auth-flow.test.js",
+      "accessCount": 5,
+      "lastAccessed": 1775817743717,
+      "type": "file"
+    },
+    {
+      "path": "src/config.js",
+      "accessCount": 4,
+      "lastAccessed": 1780497164276,
+      "type": "directory"
+    },
+    {
+      "path": "src/dashboard/styles.css",
+      "accessCount": 3,
+      "lastAccessed": 1775811131017,
+      "type": "file"
+    },
+    {
+      "path": "src/dashboard",
+      "accessCount": 3,
+      "lastAccessed": 1775816323199,
+      "type": "directory"
+    },
+    {
+      "path": "tests/security.test.js",
+      "accessCount": 3,
+      "lastAccessed": 1775817743047,
+      "type": "file"
+    },
+    {
+      "path": "tests/token-auth.test.js",
+      "accessCount": 3,
+      "lastAccessed": 1775818102723,
+      "type": "file"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-04-10-service-control-design.md",
+      "accessCount": 2,
+      "lastAccessed": 1775809907909,
+      "type": "file"
+    },
+    {
+      "path": "docs/skills/cf-router-apps.md",
+      "accessCount": 2,
+      "lastAccessed": 1775812752565,
+      "type": "file"
+    },
+    {
+      "path": "tests/app-lifecycle.test.js",
+      "accessCount": 2,
+      "lastAccessed": 1775815290470,
+      "type": "file"
+    },
+    {
+      "path": "tests/watchdog.test.js",
+      "accessCount": 2,
+      "lastAccessed": 1775815629523,
+      "type": "file"
+    },
+    {
+      "path": "tests/mcp.test.js",
+      "accessCount": 2,
+      "lastAccessed": 1775817292339,
+      "type": "file"
+    },
+    {
+      "path": "tests/ssl.test.js",
+      "accessCount": 2,
+      "lastAccessed": 1775818072545,
+      "type": "file"
+    },
+    {
+      "path": "tests/path-traversal.test.js",
+      "accessCount": 2,
+      "lastAccessed": 1775818097370,
+      "type": "file"
+    },
+    {
+      "path": "nginx/sites-active.conf",
+      "accessCount": 2,
+      "lastAccessed": 1780418518847,
+      "type": "file"
+    },
+    {
+      "path": "docs/skills/README.md",
+      "accessCount": 1,
+      "lastAccessed": 1775810550190,
+      "type": "file"
+    },
+    {
+      "path": "docs/skills/cf-router-portless.md",
+      "accessCount": 1,
+      "lastAccessed": 1775810567090,
+      "type": "file"
+    },
+    {
+      "path": "docs/skills/cf-router-mappings.md",
+      "accessCount": 1,
+      "lastAccessed": 1775810574024,
+      "type": "file"
+    },
+    {
+      "path": "docs/skills/cf-router-deploy.md",
+      "accessCount": 1,
+      "lastAccessed": 1775810579778,
+      "type": "file"
+    },
+    {
+      "path": "docs/skills/cf-router-diagnostics.md",
+      "accessCount": 1,
+      "lastAccessed": 1775810587547,
+      "type": "file"
+    },
+    {
+      "path": "tests/validation.test.js",
+      "accessCount": 1,
+      "lastAccessed": 1775814787456,
+      "type": "file"
+    },
+    {
+      "path": "jest.config.js",
+      "accessCount": 1,
+      "lastAccessed": 1775815221313,
+      "type": "file"
+    },
+    {
+      "path": "tests/portless.test.js",
+      "accessCount": 1,
+      "lastAccessed": 1775815224017,
+      "type": "file"
+    },
+    {
+      "path": "src/logger.js",
+      "accessCount": 1,
+      "lastAccessed": 1775815624537,
+      "type": "file"
+    },
+    {
+      "path": "src/discovery.js",
+      "accessCount": 1,
+      "lastAccessed": 1775816356303,
+      "type": "file"
+    },
+    {
+      "path": "nginx/sites/cf_1774046746453_e160bb3298781f0de25dddea5fd516a9_adforge.conf",
+      "accessCount": 1,
+      "lastAccessed": 1780416673401,
+      "type": "file"
+    },
+    {
+      "path": "nginx/sites/cf_1774046746453_e160bb3298781f0de25dddea5fd516a9_tracking.conf",
+      "accessCount": 1,
+      "lastAccessed": 1780416684073,
+      "type": "file"
+    },
+    {
+      "path": "nginx/sites/cf_1774046746453_e160bb3298781f0de25dddea5fd516a9_affiliate.conf",
+      "accessCount": 1,
+      "lastAccessed": 1780416723060,
+      "type": "file"
+    },
+    {
+      "path": "nginx/sites/cf_api_aitradepulse_com.conf",
+      "accessCount": 1,
+      "lastAccessed": 1780418120518,
+      "type": "file"
+    },
+    {
+      "path": "config.yml",
+      "accessCount": 1,
+      "lastAccessed": 1780497122706,
+      "type": "file"
+    },
+    {
+      "path": "src/tunnel.js",
+      "accessCount": 1,
+      "lastAccessed": 1780497138550,
+      "type": "file"
+    },
+    {
+      "path": "src/nginx.js",
+      "accessCount": 1,
+      "lastAccessed": 1780497149272,
+      "type": "file"
+    },
+    {
+      "path": "nginx/sites/cf_tracking_aitradepulse_com.conf",
+      "accessCount": 1,
+      "lastAccessed": 1780497164093,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

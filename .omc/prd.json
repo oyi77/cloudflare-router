@@ -1,0 +1,25 @@
+{
+  "title": "Phase 4 — Security Hardening: Critical Bugs, Auth/Access, Quality",
+  "spec": ".omc/plans/phase4-remediation.md",
+  "stories": [
+    { "id": "P4a-C1", "title": "Fix SIGTERM handler: proc.kill() on plain object", "passes": true },
+    { "id": "P4a-C2", "title": "Fix command injection in backup.js: execSync(curl) → axios.get()", "passes": true },
+    { "id": "P4a-C3", "title": "Fix command injection in /api/ssl/all: domain validation before execSync", "passes": true },
+    { "id": "P4a-C4", "title": "Fix path traversal in PUT /api/nginx/configs/:file", "passes": true },
+    { "id": "P4a-C5", "title": "Fix path traversal in /api/config/import and /api/backup/restore", "passes": true },
+    { "id": "P4b-H1", "title": "AUTH_TOKENS TTL: 24h expiry, periodic eviction, 100-token cap", "passes": true },
+    { "id": "P4b-H2", "title": "asyncHandler consistency: wrap 8 bare async routes", "passes": true },
+    { "id": "P4b-H3", "title": "WebSocket auth: validate token on upgrade; wss.close() in SIGTERM", "passes": true },
+    { "id": "P4b-H4", "title": "MCP app handlers call HTTP API on localhost", "passes": true },
+    { "id": "P4b-H5", "title": "apps.yaml validation at startup and watchdog reload", "passes": true },
+    { "id": "P4c-M1", "title": "Port scan input validation: integer range 1-65535, max 100 ports", "passes": true },
+    { "id": "P4c-M2", "title": "Health check timer cleanup: clearTimeout on DELETE /api/health-check/:id", "passes": true },
+    { "id": "P4c-M3", "title": "portless.js TOCTOU: move loadPortless() inside withWriteLock scope in registerService", "passes": true },
+    { "id": "P4c-M4", "title": "Log rotation race: wrap rotate+append in withWriteLock", "passes": true },
+    { "id": "P4c-M5", "title": "Webhook URL validation: validate HTTPS URL format before storing (SSRF guard)", "passes": true },
+    { "id": "P4c-M6", "title": "Backup config + servers POST input validation", "passes": true },
+    { "id": "P4c-M7", "title": "Restart endpoint uses stopApp()+startAppProcess() (fix watchdog bypass)", "passes": true },
+    { "id": "P4c-M8", "title": "process.on('unhandledRejection') handler + yaml hoisted to top of server.js", "passes": true },
+    { "id": "P4c-Tests", "title": "Test coverage: path-traversal, token-auth, ssl injection tests", "passes": true }
+  ]
+}
