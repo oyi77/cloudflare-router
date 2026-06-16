@@ -4,6 +4,40 @@
  * Each template generates a customized nginx server block.
  */
 
+function extraLocations({ subdomain }) {
+  if (subdomain !== 'adforge') return '';
+
+  // adforge.aitradepulse.com also carries Vilona AI Ads bot webhooks.
+  // Keep these before location / so Telegram/Scalev never fall through to AdForge.
+  return `
+    # Vilona AI Ads Telegram webhook → Hermes bot FastAPI
+    location /webhook/ {
+        proxy_pass http://127.0.0.1:8443;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # Scalev payment webhook → Hermes bot FastAPI
+    location = /api/payments/notify {
+        proxy_pass http://127.0.0.1:8443/webhook/scalev;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+`;
+}
+
 const TEMPLATES = {
   /**
    * Default — basic reverse proxy
@@ -13,7 +47,7 @@ const TEMPLATES = {
     generate: ({ domain, port, listenPort, subdomain }) => `server {
     listen ${listenPort};
     server_name ${domain};
-
+${extraLocations({ subdomain })}
     location / {
         proxy_pass http://127.0.0.1:${port};
         proxy_http_version 1.1;

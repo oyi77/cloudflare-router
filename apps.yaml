@@ -29,7 +29,7 @@ apps:
     mode: port
     enabled: true
     hostname: adforge.aitradepulse.com
-    port: 5000
+    port: 6969
   cc:
     mode: port
     enabled: true
