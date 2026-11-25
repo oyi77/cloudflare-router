@@ -75,11 +75,34 @@ apps:
     hostname: phonefarm-api.aitradepulse.com
     port: 8889
     health_check: /api/health
+  # Retired 2026-08-02 (1ai-content moved to :3002 / content.aitradepulse.com).
+  # Kept disabled so a stale upstream never answers the old host.
   saas:
     mode: port
-    enabled: true
+    enabled: false
     hostname: saas.aitradepulse.com
     port: 3000
+  content:
+    mode: port
+    enabled: true
+    hostname: content.aitradepulse.com
+    port: 6969
+    health_check: /health
+    custom_nginx: |-
+      location /api/py/ {
+          proxy_pass http://127.0.0.1:8767/;
+          proxy_read_timeout 600s;
+          client_max_body_size 100m;
+      }
+      location / {
+          proxy_pass http://127.0.0.1:3002;
+      }
+  tracker:
+    mode: port
+    enabled: true
+    hostname: tracker.aitradepulse.com
+    port: 4400
+    health_check: /
   ebook:
     mode: port
     enabled: true
@@ -168,7 +191,31 @@ apps:
     hostname: social.aitradepulse.com
     port: 6969
     health_check: /health
-    custom_nginx: true
+    # Backend :8202 (API), frontend :8201. :8200 is Vault, never proxy to it.
+    # A boolean here makes nginx.js skip this app and delete its stale conf.
+    custom_nginx: |-
+      location /api/ {
+          proxy_pass http://127.0.0.1:8202/;
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+      }
+      location /docs {
+          proxy_pass http://127.0.0.1:8202/docs;
+      }
+      location /health {
+          proxy_pass http://127.0.0.1:8202/health;
+      }
+      location / {
+          proxy_pass http://127.0.0.1:8201/;
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+      }
   tracking:
     mode: port
     enabled: true
